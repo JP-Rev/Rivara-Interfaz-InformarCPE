@@ -308,21 +308,25 @@ docker compose exec informarcpe cat /data/cache/respuestas/cpe_10235396826_*.jso
 
 ## Cómo habla con ARCA
 
-Según la tabla 1 del manual wscpe v2.0.5, el servicio está en:
+**El manual y el servicio no coinciden.** El manual wscpe v2.0.5 reemplazó
+"afip" por "arca" en todo el texto, pero el servicio que corre no cambió. Lo
+que vale es lo que declara el WSDL real:
 
-| Ambiente | Endpoint |
-|---|---|
-| Producción | `https://cpea-ws.arca.gob.ar/wscpe/services/soap` |
-| Testing | `https://cpea-ws-qaext.arca.gob.ar/wscpe/services/soap` |
+| | Manual v2.0.5 (no funciona) | WSDL real (lo que usa la app) |
+|---|---|---|
+| Endpoint de producción | `cpea-ws.arca.gob.ar` | `https://cpea-ws.afip.gob.ar/wscpe/services/soap` |
+| Namespace | `https://serviciosjava.arca.gob.ar/wscpe/` | `https://serviciosjava.afip.gob.ar/wscpe/` |
+| SOAPAction | no lo menciona | obligatorio: `<namespace><operación>` |
 
-La dirección que traen las bibliotecas viejas (`serviciosjava.afip.gob.ar`)
-da 404. Y el WSDL de producción (`...soap?wsdl`) responde 200 **con el cuerpo
-vacío**, así que la app no lo usa: arma el SOAP a mano con la estructura del
-manual, como hace `cpe_bolsatech.py` con BolsaTech.
+El balancer de ARCA no da errores: si el host, el namespace o el SOAPAction no
+coinciden, contesta **HTTP 200 con el cuerpo vacío**. Por eso cuesta tanto
+encontrarlo.
 
-Si ARCA vuelve a mover algo, se corrige desde el `.env` sin esperar una versión
-nueva: `ARCA_URL_WSCPE`, `ARCA_URL_WSAA` y `ARCA_NS_WSCPE` (el namespace de los
-pedidos).
+El SOAP se arma a mano, como hace `cpe_bolsatech.py` con BolsaTech. Si ARCA
+vuelve a mover algo, se corrige desde el `.env` sin tocar código:
+`ARCA_URL_WSCPE`, `ARCA_URL_WSAA` y `ARCA_NS_WSCPE`. El WSDL está en
+`https://cpea-ws.afip.gob.ar/wscpe/services/soap?wsdl`, y de ahí salen el
+`soap:address`, el `targetNamespace` y los `soapAction`.
 
 ### Diagnóstico desde el servidor
 

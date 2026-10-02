@@ -14,23 +14,24 @@ PLANTILLA = BASE_DIR / "plantilla_visec.xlsx"
 
 load_dotenv(RAIZ / ".env")
 
-# WSAA y wscpe. Las de wscpe salen de la tabla 1 del manual v2.0.5: ARCA movio
-# el servicio a cpea-ws.arca.gob.ar, y la direccion que traen las bibliotecas
-# viejas (serviciosjava.afip.gob.ar) da 404. Son los endpoints SOAP, sin
-# "?wsdl": el WSDL de produccion responde vacio y la app no lo usa.
+# WSAA y wscpe. Los de wscpe son los que declara el WSDL real
+# (cpea-ws.afip.gob.ar/wscpe/services/soap?wsdl), no los del manual v2.0.5: el
+# manual reemplazo "afip" por "arca" en todo el texto, pero el servicio sigue en
+# el host de AFIP. cpea-ws.arca.gob.ar responde 200 vacio a cualquier pedido, y
+# serviciosjava.afip.gob.ar (el de las bibliotecas viejas) da 404.
 URLS = {
     "homologacion": {
         "wsaa": "https://wsaahomo.afip.gov.ar/ws/services/LoginCms",
-        "wscpe": "https://cpea-ws-qaext.arca.gob.ar/wscpe/services/soap",
+        "wscpe": "https://cpea-ws-qaext.afip.gob.ar/wscpe/services/soap",
     },
     "produccion": {
         "wsaa": "https://wsaa.afip.gov.ar/ws/services/LoginCms",
-        "wscpe": "https://cpea-ws.arca.gob.ar/wscpe/services/soap",
+        "wscpe": "https://cpea-ws.afip.gob.ar/wscpe/services/soap",
     },
 }
 
-# Namespace de los pedidos, el de 132 de los 133 ejemplos del manual.
-NS_WSCPE = "https://serviciosjava.arca.gob.ar/wscpe/"
+# targetNamespace del WSDL. Va en los pedidos y en el SOAPAction.
+NS_WSCPE = "https://serviciosjava.afip.gob.ar/wscpe/"
 
 
 def _bool(nombre: str, defecto: bool = False) -> bool:

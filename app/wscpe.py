@@ -3,10 +3,15 @@
 Solo se usa la consulta: `consultarCPEAutomotor` por número de CTG. La app no
 autoriza, anula ni modifica nada, así que no hay forma de alterar una CPE.
 
-El SOAP se arma a mano con la estructura del manual (v2.0.5) en lugar de leer
-el WSDL: en producción, `cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl`
-responde 200 con el cuerpo vacío, y un cliente que depende del WSDL no puede
-ni arrancar. Es lo mismo que hace cpe_bolsatech.py con BolsaTech.
+El SOAP se arma a mano, como hace cpe_bolsatech.py con BolsaTech, con lo que
+declara el WSDL real (cpea-ws.afip.gob.ar/wscpe/services/soap?wsdl):
+
+- el namespace es https://serviciosjava.afip.gob.ar/wscpe/. El manual v2.0.5
+  dice "arca" en todos lados, pero el servicio no cambio: con el namespace del
+  manual el pedido no coincide con ninguna operacion.
+- el SOAPAction es obligatorio (<namespace><operacion>). Sin el, el balancer de
+  ARCA contesta 200 con el cuerpo vacio, sin ningun error.
+- dummy no tiene elemento de pedido: el Body va vacio.
 
 Diagnóstico desde el servidor:
     docker exec informarcpe python -m app.wscpe dummy
@@ -91,23 +96,27 @@ def _buscar(raiz: ET.Element, nombre: str) -> ET.Element | None:
     return next((e for e in raiz.iter() if _local(e.tag) == nombre), None)
 
 
-def _sobre(operacion: str, cuerpo: str) -> bytes:
+def _sobre(elemento: str | None, cuerpo: str = "") -> bytes:
+    """Sobre SOAP 1.1. Sin `elemento`, el Body va vacio (es el caso de dummy)."""
+    contenido = f"<wsc:{elemento}>{cuerpo}</wsc:{elemento}>" if elemento else ""
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="{SOAP_ENV}" xmlns:wsc="{config.ns_wscpe}">
   <soapenv:Header/>
-  <soapenv:Body>
-    <wsc:{operacion}>{cuerpo}</wsc:{operacion}>
-  </soapenv:Body>
+  <soapenv:Body>{contenido}</soapenv:Body>
 </soapenv:Envelope>""".encode("utf-8")
 
 
-def _enviar(sobre: bytes) -> ET.Element:
+def _enviar(operacion: str, sobre: bytes) -> ET.Element:
     """POST del sobre SOAP. Devuelve el Body de la respuesta."""
     try:
         respuesta = requests.post(
             config.url_wscpe,
             data=sobre,
-            headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+            headers={
+                "Content-Type": "text/xml; charset=utf-8",
+                # Tal cual lo declara el WSDL: namespace + nombre de la operacion.
+                "SOAPAction": f'"{config.ns_wscpe}{operacion}"',
+            },
             timeout=config.timeout,
         )
     except requests.RequestException as error:
@@ -115,9 +124,13 @@ def _enviar(sobre: bytes) -> ET.Element:
 
     texto = respuesta.text.strip()
     if not texto:
-        # Es lo que contesta el balanceador de ARCA cuando no le gusta algo del
-        # pedido: 200 y cuerpo vacío, sin ninguna pista.
-        raise ErrorWSCPE(f"wscpe respondió vacío (HTTP {respuesta.status_code}) en {config.url_wscpe}")
+        # Es lo que contesta el balanceador de ARCA cuando el pedido no coincide
+        # con ninguna operacion (SOAPAction o namespace equivocados): 200 y
+        # cuerpo vacio, sin ninguna pista.
+        raise ErrorWSCPE(
+            f"wscpe respondió vacío (HTTP {respuesta.status_code}) en {config.url_wscpe}. "
+            f"Revisar ARCA_URL_WSCPE y ARCA_NS_WSCPE contra el WSDL."
+        )
     try:
         raiz = ET.fromstring(texto)
     except ET.ParseError as error:
@@ -141,7 +154,7 @@ def _enviar(sobre: bytes) -> ET.Element:
 
 def dummy() -> dict:
     """Estado del servicio. No necesita ticket: sirve para probar la conexión."""
-    cuerpo = _enviar(_sobre("DummyReq", ""))
+    cuerpo = _enviar("dummy", _sobre(None))
     respuesta = _buscar(cuerpo, "respuesta")
     return a_dict(respuesta) if respuesta is not None else a_dict(cuerpo)
 
@@ -175,7 +188,7 @@ def _consultar_con(ctg: str, cuit: str) -> tuple[dict | None, list[str]]:
         f"<cuitRepresentada>{cuit}</cuitRepresentada></auth>"
         f"<solicitud><cuitSolicitante>{cuit}</cuitSolicitante><nroCTG>{int(ctg)}</nroCTG></solicitud>"
     )
-    body = _enviar(_sobre("ConsultarCPEAutomotorReq", cuerpo))
+    body = _enviar("consultarCPEAutomotor", _sobre("ConsultarCPEAutomotorReq", cuerpo))
     nodo = _buscar(body, "respuesta")
     respuesta = a_dict(nodo) if nodo is not None else {}
     if not isinstance(respuesta, dict):
