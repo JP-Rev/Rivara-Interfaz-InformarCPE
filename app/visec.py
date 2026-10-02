@@ -33,6 +33,28 @@ COLUMNAS = [
 
 HOJA = "Cartas de Porte"
 
+# Estados de la CPE (manual wscpe v2.0.5, 2.7.1).
+ESTADOS = {
+    "AC": "Activa",
+    "AN": "Anulada",
+    "AP": "Anulada por el productor",
+    "BR": "Borrador",
+    "CF": "Activa con confirmación de arribo",
+    "CN": "Confirmada",
+    "CO": "Activa con contingencia",
+    "DD": "Descargada en destino",
+    "DE": "Desactivada",
+    "IN": "Inactiva",
+    "PA": "Pendiente de aceptación del productor",
+    "PE": "Pendiente de emisión",
+    "PO": "Pendiente de aceptación del origen",
+    "RE": "Rechazada",
+}
+
+# Solo una CPE cerrada en destino tiene los pesos de descarga definitivos. En
+# cualquier otro estado puede cambiar o no haber llegado todavía.
+ESTADOS_FINALES = {"CN", "DD"}
+
 
 # ---------------------------------------------------------------------------
 # Lectura de la respuesta de ARCA
@@ -136,7 +158,7 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         peso = _numero(propios["peso_ingreso_stock"])
         peso_stock = str(int(peso.to_integral_value())) if peso and peso > 0 else ""
     if not peso_stock:
-        peso_stock = _kilos(cpe, "pesoBrutoDescarga", "pesoTaraDescarga")
+        peso_stock = _kilos(cpe, "datosCarga.pesoBrutoDescarga", "datosCarga.pesoTaraDescarga")
 
     cod_grano = _texto(cpe, "datosCarga.codGrano")
     producto = config.grano_visec.get(cod_grano, cod_grano)
@@ -146,8 +168,11 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         "Fecha CPE": _fecha(_buscar(cpe, "cabecera.fechaEmision"), config.formato_fecha),
         "Número CPE": _numero_cpe(cpe),
         "Número CTG": _texto(cpe, "cabecera.nroCTG") or consulta.ctg,
-        "CUIT Titular": _cuit(cpe, "cabecera.cuitSolicitante"),
-        "Número RUCA Origen": _texto(cpe, "origen.operador.planta"),
+        # La CPE automotor no tiene un campo "titular": es quien la emite, que
+        # en la respuesta es el CUIT de origen (manual v2.0.5, respuesta de
+        # autorizarCPEAutomotor).
+        "CUIT Titular": _cuit(cpe, "origen.cuit"),
+        "Número RUCA Origen": _texto(cpe, "origen.planta") or _texto(cpe, "origen.plantaARCA"),
         "CUIT Remitente Comercial Productor": _cuit(cpe, "retiroProductor.cuitRemitenteComercialProductor"),
         "CUIT Rte Comercial Venta Primaria": _cuit(cpe, "intervinientes.cuitRemitenteComercialVentaPrimaria"),
         "CUIT Rte Comercial Venta Secundaria": _cuit(cpe, "intervinientes.cuitRemitenteComercialVentaSecundaria"),
@@ -181,9 +206,10 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
     if not valores["Peso Ingreso Stock (Kg)"]:
         avisos.append("Falta Peso Ingreso Stock: la CPE todavía no tiene pesos de descarga en ARCA")
 
-    estado = consulta.estado
-    if estado and estado.upper() not in ("CONFIRMADA", "DESCARGADA", "DESCARGADO", "CONFIRMADO"):
-        avisos.append(f"La CPE está en estado {estado}")
+    codigo = consulta.estado.upper()
+    estado = f"{codigo} · {ESTADOS[codigo]}" if codigo in ESTADOS else codigo
+    if codigo and codigo not in ESTADOS_FINALES:
+        avisos.append(f"La CPE está en estado {estado}: los pesos de descarga pueden no ser definitivos")
 
     return Fila(ctg=consulta.ctg, valores=valores, avisos=avisos, estado=estado)
 

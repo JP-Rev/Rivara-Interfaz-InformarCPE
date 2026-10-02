@@ -14,19 +14,23 @@ PLANTILLA = BASE_DIR / "plantilla_visec.xlsx"
 
 load_dotenv(RAIZ / ".env")
 
-# WSAA y WSCPE. Homologación por defecto: informar en producción es irreversible.
+# WSAA y wscpe. Las de wscpe salen de la tabla 1 del manual v2.0.5: ARCA movio
+# el servicio a cpea-ws.arca.gob.ar, y la direccion que traen las bibliotecas
+# viejas (serviciosjava.afip.gob.ar) da 404. Son los endpoints SOAP, sin
+# "?wsdl": el WSDL de produccion responde vacio y la app no lo usa.
 URLS = {
     "homologacion": {
         "wsaa": "https://wsaahomo.afip.gov.ar/ws/services/LoginCms",
-        "wscpe": "https://fwshomo.afip.gov.ar/wscpe/services/soap?wsdl",
+        "wscpe": "https://cpea-ws-qaext.arca.gob.ar/wscpe/services/soap",
     },
     "produccion": {
         "wsaa": "https://wsaa.afip.gov.ar/ws/services/LoginCms",
-        # ARCA movio el servicio a un host propio en 2026. La direccion que
-        # traen las bibliotecas viejas (serviciosjava.afip.gob.ar) da 404.
-        "wscpe": "https://cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl",
+        "wscpe": "https://cpea-ws.arca.gob.ar/wscpe/services/soap",
     },
 }
+
+# Namespace de los pedidos, el de 132 de los 133 ejemplos del manual.
+NS_WSCPE = "https://serviciosjava.arca.gob.ar/wscpe/"
 
 
 def _bool(nombre: str, defecto: bool = False) -> bool:
@@ -102,6 +106,7 @@ class Config:
     # asi que las URL se pueden pisar desde el .env sin tocar el codigo.
     url_wsaa_override: str = os.getenv("ARCA_URL_WSAA", "").strip()
     url_wscpe_override: str = os.getenv("ARCA_URL_WSCPE", "").strip()
+    ns_wscpe: str = os.getenv("ARCA_NS_WSCPE", "").strip() or NS_WSCPE
 
     @property
     def url_wsaa(self) -> str:
@@ -110,11 +115,9 @@ class Config:
     @property
     def url_wscpe(self) -> str:
         url = self.url_wscpe_override or URLS[self.entorno]["wscpe"]
-        # zeep necesita el documento WSDL, no el endpoint SOAP. Es facil
-        # copiar la direccion sin "?wsdl" y el error que da despues no lo dice.
-        if "?" not in url and not url.endswith(".wsdl"):
-            url += "?wsdl"
-        return url
+        # Se le habla al endpoint, no al WSDL: si quedo "?wsdl" de una
+        # configuracion anterior, se saca.
+        return url.split("?", 1)[0]
 
     @property
     def cuits(self) -> list[str]:

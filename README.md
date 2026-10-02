@@ -264,14 +264,14 @@ distinta.
 
 ## Qué columnas completa, y de dónde
 
-| Columna de Visec | Origen |
+| Columna de Visec | Origen (campos de la respuesta, manual wscpe v2.0.5) |
 |---|---|
-| Fecha y Hora Movimiento | CSV del script (`fecha_movimiento`); si no, `cabecera.fechaInicioEstado` de ARCA |
+| Fecha y Hora Movimiento | CSV del script (`fecha_movimiento`); si no, `cabecera.fechaInicioEstado` |
 | Fecha CPE | `cabecera.fechaEmision` |
 | Número CPE | `cabecera.sucursal` + `cabecera.nroOrden` |
 | Número CTG | `cabecera.nroCTG` |
-| CUIT Titular | `cabecera.cuitSolicitante` |
-| Número RUCA Origen | `origen.operador.planta` |
+| CUIT Titular | `origen.cuit` (la CPE automotor no tiene un campo "titular": es quien la emite) |
+| Número RUCA Origen | `origen.planta` (o `origen.plantaARCA`) |
 | CUIT Remitente Comercial Productor | `retiroProductor.cuitRemitenteComercialProductor` |
 | CUIT Rte Comercial Venta Primaria / Secundaria / Secundaria 2 | `intervinientes.*` |
 | CUIT Corredor Venta Primaria / Secundaria | `intervinientes.*` |
@@ -280,12 +280,17 @@ distinta.
 | Número RUCA Destino | `destino.planta` |
 | Código Producto | `datosCarga.codGrano`, traducido con `MAPA_GRANO_VISEC` |
 | Campaña | `datosCarga.cosecha` |
-| Peso Neto Carga (Kg) | `datosCarga.pesoBruto` − `pesoTara` |
-| Peso Ingreso Stock (Kg) | CSV del script (`peso_ingreso_stock`); si no, `pesoBrutoDescarga` − `pesoTaraDescarga` |
+| Peso Neto Carga (Kg) | `datosCarga.pesoBruto` − `datosCarga.pesoTara` |
+| Peso Ingreso Stock (Kg) | CSV del script (`peso_ingreso_stock`); si no, `datosCarga.pesoBrutoDescarga` − `pesoTaraDescarga` |
 | Último Almacenamiento, Tipo Movimiento | valores fijos del `.env` |
 
-Quedan **sin completar**, porque no están en la CPE automotor de ARCA:
-**Número RENSPA**, **Número CTG Asignado** y los dos **pesos por UP**. Hay que
+Solo una CPE en estado **CN (confirmada)** o **DD (descargada en destino)**
+tiene los pesos de descarga definitivos. En cualquier otro estado la app la
+incluye igual, pero con un aviso.
+
+Quedan **sin completar**, porque no están en la respuesta de
+`consultarCPEAutomotor` (confirmado con el manual v2.0.5): **Número RENSPA**,
+**Número CTG Asignado** y los dos **pesos por UP**. Hay que
 confirmar con Visec si son obligatorios para este tipo de movimiento.
 
 También falta que Visec indique qué valores acepta en **Tipo Movimiento** y
@@ -301,29 +306,35 @@ docker compose exec informarcpe ls /data/cache/respuestas
 docker compose exec informarcpe cat /data/cache/respuestas/cpe_10235396826_*.json
 ```
 
-## Si ARCA mueve el endpoint
+## Cómo habla con ARCA
 
-Pasó en 2026: el WSDL de producción que traen las bibliotecas
-(`serviciosjava.afip.gob.ar/wscpe/services/soap?wsdl`) empezó a dar 404 porque
-el servicio se mudó a `cpea-ws.arca.gob.ar`. Para no depender de una versión
-nueva de la app, las dos direcciones se pueden pisar desde el `.env`:
+Según la tabla 1 del manual wscpe v2.0.5, el servicio está en:
 
-```ini
-ARCA_URL_WSCPE=https://cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl
-ARCA_URL_WSAA=https://wsaa.afip.gov.ar/ws/services/LoginCms
-```
+| Ambiente | Endpoint |
+|---|---|
+| Producción | `https://cpea-ws.arca.gob.ar/wscpe/services/soap` |
+| Testing | `https://cpea-ws-qaext.arca.gob.ar/wscpe/services/soap` |
 
-Para buscar la que responde, desde el servidor:
+La dirección que traen las bibliotecas viejas (`serviciosjava.afip.gob.ar`)
+da 404. Y el WSDL de producción (`...soap?wsdl`) responde 200 **con el cuerpo
+vacío**, así que la app no lo usa: arma el SOAP a mano con la estructura del
+manual, como hace `cpe_bolsatech.py` con BolsaTech.
+
+Si ARCA vuelve a mover algo, se corrige desde el `.env` sin esperar una versión
+nueva: `ARCA_URL_WSCPE`, `ARCA_URL_WSAA` y `ARCA_NS_WSCPE` (el namespace de los
+pedidos).
+
+### Diagnóstico desde el servidor
 
 ```bash
-for u in "https://cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl" \
-         "https://serviciosjava.afip.gob.ar/wscpe/services/soap?wsdl" ; do
-  echo "$(curl -sL -o /dev/null -w '%{http_code}' --max-time 15 "$u")  $u"
-done
+# ¿Llega a ARCA? No necesita certificado.
+docker exec informarcpe python -m app.wscpe dummy
+
+# Una consulta real, con la respuesta completa
+docker exec informarcpe python -m app.wscpe consultar 10135055909
 ```
 
-El `?wsdl` importa: sin él la dirección es el endpoint SOAP y no el documento
-que la app necesita para saber cómo llamarlo. Si se olvida, la app lo agrega.
+`dummy` tiene que devolver `appserver`, `authserver` y `dbserver` en `OK`.
 
 ## Qué hace la app con los datos
 
