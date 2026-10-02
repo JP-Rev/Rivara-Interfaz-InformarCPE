@@ -48,14 +48,38 @@ SQLPLUS_EXE=D:\oracle\product\11.2.0\client_1\bin\sqlplus.exe
 ORACLE_USUARIO=
 ORACLE_PASSWORD=
 ORACLE_ALIAS=BASE
+
+ESQUEMAS=SYSADMIN:Rivara,SYSADMIN_ELN:La Tranquera Verde,SYSADMIN_PRA:Pradera Natural
 ```
 
-Después, doble clic en **Generar CTG.bat** (pide las fechas) o desde la consola:
+### Un esquema por sociedad
+
+Cada sociedad tiene su esquema en la misma base y con las mismas credenciales:
+
+| Esquema | Sociedad |
+|---|---|
+| `SYSADMIN` | Rivara |
+| `SYSADMIN_ELN` | La Tranquera Verde |
+| `SYSADMIN_PRA` | Pradera Natural |
+
+Por omisión consulta los tres y agrega al CSV las columnas `empresa` y
+`esquema`, así se ve de quién es cada CTG. Con `--esquema` se consulta uno solo.
+Los nombres salen de `ESQUEMAS` del `.env`, así que agregar una sociedad no
+toca el código.
+
+Un CTG que apareciera en dos esquemas se informa una sola vez, con un aviso en
+la consola: Visec lo rechazaría por duplicado.
+
+### Correrlo
+
+Doble clic en **Generar CTG.bat** (pide las fechas y la empresa) o desde la
+consola:
 
 ```bat
-python ctg_soja.py                            :: los ingresos de hoy
+python ctg_soja.py                                      :: hoy, las tres sociedades
 python ctg_soja.py --desde 2026-10-01
 python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07
+python ctg_soja.py --desde 2026-10-01 --esquema SYSADMIN_PRA
 python ctg_soja.py --desde 2026-10-01 --planta 2
 ```
 

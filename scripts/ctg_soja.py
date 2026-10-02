@@ -7,15 +7,19 @@ misma carpeta donde esta este archivo.
 
 No necesita instalar nada: usa solo la biblioteca estandar de Python 3.8+.
 
-Consulta SYSADMIN_ELN.INGRESOS_PLANTAS igual que cpe_bolsatech.py, y ademas del
-CTG exporta la fecha del movimiento y el peso neto de balanza, que son los dos
-datos que ARCA no tiene. El CSV resultante se sube a la app "Informar CPE a
-Visec".
+Consulta INGRESOS_PLANTAS de un esquema por sociedad (SYSADMIN de Rivara,
+SYSADMIN_ELN de La Tranquera Verde, SYSADMIN_PRA de Pradera Natural). Por
+omision consulta los tres y agrega al CSV de que empresa es cada CTG.
+
+Ademas del CTG exporta la fecha del movimiento y el peso neto de balanza, que
+son los dos datos que ARCA no tiene. El CSV resultante se sube a la app
+"Informar CPE a Visec".
 
 Uso:
-  python ctg_soja.py                          (los ingresos de hoy)
+  python ctg_soja.py                          (los ingresos de hoy, los 3 esquemas)
   python ctg_soja.py --desde 2026-10-01
   python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07
+  python ctg_soja.py --desde 2026-10-01 --esquema SYSADMIN_PRA
   python ctg_soja.py --desde 2026-10-01 --planta 2
 """
 
@@ -44,14 +48,28 @@ SQLPLUS_EXE=D:\oracle\product\11.2.0\client_1\bin\sqlplus.exe
 ORACLE_USUARIO=
 ORACLE_PASSWORD=
 ORACLE_ALIAS=BASE
+
+# Un esquema por sociedad, en formato ESQUEMA:Nombre separados por coma.
+# Las credenciales son las mismas para los tres. Por omision se consultan
+# todos; con --esquema se elige uno.
+ESQUEMAS=SYSADMIN:Rivara,SYSADMIN_ELN:La Tranquera Verde,SYSADMIN_PRA:Pradera Natural
 """
 
-COLUMNAS = [
+# Esquemas que se usan si el .env no trae ESQUEMAS.
+ESQUEMAS_POR_OMISION = {
+    "SYSADMIN": "Rivara",
+    "SYSADMIN_ELN": "La Tranquera Verde",
+    "SYSADMIN_PRA": "Pradera Natural",
+}
+
+# "empresa" y "esquema" los agrega Python, no la consulta.
+CAMPOS_SQL = [
     "ctg", "numero_cpe", "fecha_movimiento", "peso_ingreso_stock",
     "punto_ingreso", "numero_ingreso", "planta", "cosecha", "cuit_productor",
 ]
+COLUMNAS = CAMPOS_SQL + ["empresa", "esquema"]
 
-# El orden de los campos tiene que coincidir con COLUMNAS.
+# El orden de los campos tiene que coincidir con CAMPOS_SQL.
 SELECT = """
     NVL(TRIM(TO_CHAR(I.IPL_CTG)), '') || '|' ||
     NVL(TRIM(TO_CHAR(I.IPL_SUCURSAL_INTERNA_CPE)), '') || LPAD(NVL(TRIM(TO_CHAR(I.IPL_NUMERO_INTERNO_CPE)), ''), 8, '0') || '|' ||
@@ -93,6 +111,10 @@ def leer_env() -> dict[str, str]:
         if os.environ.get(clave):
             valores[clave] = os.environ[clave]
 
+    valores["ESQUEMAS"] = valores.get("ESQUEMAS", "").strip() or ",".join(
+        f"{esquema}:{empresa}" for esquema, empresa in ESQUEMAS_POR_OMISION.items()
+    )
+
     faltan = [c for c in ("ORACLE_USUARIO", "ORACLE_ALIAS") if not valores.get(c)]
     if faltan:
         sys.exit(f"Falta completar {', '.join(faltan)} en {ARCHIVO_ENV}")
@@ -108,11 +130,51 @@ def leer_env() -> dict[str, str]:
     return valores
 
 
+def esquemas_configurados(config: dict[str, str]) -> dict[str, str]:
+    """{ESQUEMA: nombre de la sociedad}, en el orden del .env."""
+    esquemas: dict[str, str] = {}
+    for parte in config["ESQUEMAS"].split(","):
+        esquema, _, empresa = parte.partition(":")
+        esquema = esquema.strip().upper()
+        if not esquema:
+            continue
+        # El nombre del esquema se interpola en el SQL, asi que solo se acepta
+        # un identificador de Oracle.
+        if not esquema.replace("_", "").isalnum():
+            sys.exit(f"Nombre de esquema invalido en ESQUEMAS: {esquema!r}")
+        esquemas[esquema] = empresa.strip() or esquema
+    if not esquemas:
+        sys.exit(f"ESQUEMAS quedo vacio en {ARCHIVO_ENV}")
+    return esquemas
+
+
+def elegir_esquemas(config: dict[str, str], pedidos: str | None) -> dict[str, str]:
+    """Los esquemas a consultar: los de --esquema, o todos."""
+    disponibles = esquemas_configurados(config)
+    if not pedidos or pedidos.strip().lower() in ("todos", "todas", "*"):
+        return disponibles
+
+    elegidos: dict[str, str] = {}
+    for nombre in pedidos.split(","):
+        esquema = nombre.strip().upper()
+        if not esquema:
+            continue
+        if esquema not in disponibles:
+            sys.exit(
+                f"El esquema {esquema} no esta en ESQUEMAS del .env.\n"
+                f"Disponibles: {', '.join(disponibles)}"
+            )
+        elegidos[esquema] = disponibles[esquema]
+    if not elegidos:
+        sys.exit("--esquema quedo vacio")
+    return elegidos
+
+
 # ---------------------------------------------------------------------------
 # Consulta
 # ---------------------------------------------------------------------------
 
-def generar_sql(desde: datetime, hasta: datetime, planta: str | None, especie: str) -> str:
+def generar_sql(esquema: str, desde: datetime, hasta: datetime, planta: str | None, especie: str) -> str:
     filtro_planta = f"\n  AND I.IPL_PLANTA = {int(planta)}" if planta else ""
     return f"""
 WHENEVER OSERROR EXIT 10
@@ -129,7 +191,7 @@ SET SQLBLANKLINES ON
 SET DEFINE OFF
 
 SELECT {SELECT}
-FROM SYSADMIN_ELN.INGRESOS_PLANTAS I
+FROM {esquema}.INGRESOS_PLANTAS I
 WHERE I.IPL_ESPECIE = '{especie}'
   AND I.IPL_FECHA_HORA >= TO_DATE('{desde:%Y-%m-%d %H:%M:%S}', 'YYYY-MM-DD HH24:MI:SS')
   AND I.IPL_FECHA_HORA <  TO_DATE('{hasta:%Y-%m-%d %H:%M:%S}', 'YYYY-MM-DD HH24:MI:SS')
@@ -141,7 +203,8 @@ EXIT 0
 """
 
 
-def ejecutar(config: dict[str, str], sql: str) -> list[dict[str, str]]:
+def ejecutar(config: dict[str, str], esquema: str, empresa: str, sql: str) -> list[dict[str, str]]:
+    """Corre la consulta en un esquema y devuelve sus filas."""
     archivo_sql: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False,
@@ -160,7 +223,10 @@ def ejecutar(config: dict[str, str], sql: str) -> list[dict[str, str]]:
         salida, error = resultado.stdout or "", resultado.stderr or ""
         completa = f"{salida}\n{error}".upper()
         if resultado.returncode != 0 or "ORA-" in completa or "SP2-" in completa:
-            sys.exit(f"Error de SQL*Plus (codigo {resultado.returncode}):\n{salida}\n{error}")
+            sys.exit(
+                f"Error de SQL*Plus consultando {esquema} (codigo {resultado.returncode}):\n"
+                f"{salida}\n{error}"
+            )
 
         registros = []
         for linea in salida.splitlines():
@@ -168,10 +234,13 @@ def ejecutar(config: dict[str, str], sql: str) -> list[dict[str, str]]:
             if "|" not in linea:
                 continue
             valores = [v.strip() for v in linea.split("|")]
-            if len(valores) != len(COLUMNAS):
-                print(f"ADVERTENCIA: fila ignorada ({len(valores)} campos, esperados {len(COLUMNAS)})")
+            if len(valores) != len(CAMPOS_SQL):
+                print(f"ADVERTENCIA: fila ignorada ({len(valores)} campos, esperados {len(CAMPOS_SQL)})")
                 continue
-            registros.append(dict(zip(COLUMNAS, valores)))
+            registro = dict(zip(CAMPOS_SQL, valores))
+            registro["empresa"] = empresa
+            registro["esquema"] = esquema
+            registros.append(registro)
         return registros
     finally:
         if archivo_sql and archivo_sql.exists():
@@ -184,6 +253,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="CTG de ingresos de soja para informar a Visec")
     ap.add_argument("--desde", type=date.fromisoformat, help="AAAA-MM-DD (por omision, hoy)")
     ap.add_argument("--hasta", type=date.fromisoformat, help="AAAA-MM-DD, inclusive (por omision, igual que desde)")
+    ap.add_argument("--esquema",
+                    help="Esquema a consultar, o varios separados por coma "
+                         "(por omision, todos los de ESQUEMAS del .env)")
     ap.add_argument("--planta", help="Filtrar por IPL_PLANTA")
     ap.add_argument("--especie", default=ESPECIE_SOJA,
                     help=f"Codigo interno de especie (por omision {ESPECIE_SOJA} = soja)")
@@ -197,17 +269,37 @@ def main() -> int:
     if hasta < desde:
         ap.error("--hasta no puede ser anterior a --desde")
 
-    print(f"Consultando ingresos de especie {args.especie} del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}...")
-    registros = ejecutar(config, generar_sql(
-        datetime.combine(desde, datetime.min.time()),
-        datetime.combine(hasta + timedelta(days=1), datetime.min.time()),
-        args.planta, args.especie,
-    ))
+    esquemas = elegir_esquemas(config, args.esquema)
+    desde_sql = datetime.combine(desde, datetime.min.time())
+    hasta_sql = datetime.combine(hasta + timedelta(days=1), datetime.min.time())
+
+    print(f"Ingresos de especie {args.especie} del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}\n")
+    registros: list[dict[str, str]] = []
+    for esquema, empresa in esquemas.items():
+        print(f"  {empresa} ({esquema})...", end=" ", flush=True)
+        sql = generar_sql(esquema, desde_sql, hasta_sql, args.planta, args.especie)
+        filas = ejecutar(config, esquema, empresa, sql)
+        print(f"{len(filas)} CTG")
+        registros.extend(filas)
+
     if not registros:
-        print("No hay ingresos con CTG para esos filtros.")
+        print("\nNo hay ingresos con CTG para esos filtros.")
         return 0
 
-    salida = args.salida or BASE_DIR / f"ctg_soja_{desde:%Y%m%d}_{hasta:%Y%m%d}.csv"
+    # Un mismo CTG no deberia aparecer en dos esquemas, pero si pasa se informa
+    # una sola vez: Visec lo rechazaria por duplicado.
+    vistos: set[str] = set()
+    unicos = []
+    for registro in registros:
+        if registro["ctg"] in vistos:
+            print(f"ADVERTENCIA: CTG {registro['ctg']} repetido ({registro['esquema']}), se omite")
+            continue
+        vistos.add(registro["ctg"])
+        unicos.append(registro)
+    registros = unicos
+
+    sufijo = f"_{'_'.join(esquemas)}" if len(esquemas) == 1 else ""
+    salida = args.salida or BASE_DIR / f"ctg_soja_{desde:%Y%m%d}_{hasta:%Y%m%d}{sufijo}.csv"
     if not salida.is_absolute():
         salida = BASE_DIR / salida
     # utf-8-sig para que Excel abra bien los acentos al hacer doble clic.
@@ -216,7 +308,7 @@ def main() -> int:
         escritor.writeheader()
         escritor.writerows(registros)
 
-    print(f"\nListo: {len(registros)} CTG")
+    print(f"\nListo: {len(registros)} CTG en total")
     print(f"Archivo: {salida}")
     print("\nSubi ese archivo en la app 'Informar CPE a Visec'.")
     return 0

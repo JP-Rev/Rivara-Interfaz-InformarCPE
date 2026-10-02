@@ -29,12 +29,19 @@ echo.
 
 set DESDE=
 set HASTA=
+set ESQUEMA=
 set /p DESDE=Desde:
 set /p HASTA=Hasta (Enter = igual que desde):
+echo.
+echo Empresa:  1=Rivara   2=La Tranquera Verde   3=Pradera Natural
+set /p ESQUEMA=Numero (Enter = las tres):
 
 set ARGS=
 if not "%DESDE%"=="" set ARGS=--desde %DESDE%
 if not "%HASTA%"=="" set ARGS=%ARGS% --hasta %HASTA%
+if "%ESQUEMA%"=="1" set ARGS=%ARGS% --esquema SYSADMIN
+if "%ESQUEMA%"=="2" set ARGS=%ARGS% --esquema SYSADMIN_ELN
+if "%ESQUEMA%"=="3" set ARGS=%ARGS% --esquema SYSADMIN_PRA
 
 echo.
 %PYTHON% ctg_soja.py %ARGS%
