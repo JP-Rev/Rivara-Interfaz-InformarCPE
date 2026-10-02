@@ -138,21 +138,19 @@ Para que `/storage` no crezca sin control, la app borra sola los XLSX de más de
 
 ### Traer el código
 
-El ciclo normal es el del §10 del contrato:
+El ciclo del §10 del contrato:
 
 ```bash
 /srv/deploy-app.sh informarcpe https://github.com/JP-Rev/Rivara-Interfaz-InformarCPE.git
 ```
 
-Ese script clona en `/srv/informarcpe`, verifica que `/storage` esté montado,
-crea `/storage/informarcpe` y levanta el compose. **Clona la rama por omisión**,
-así que hasta que esto esté en `main` hay que traerlo a mano:
+Clona en `/srv/informarcpe`, verifica que `/storage` esté montado, crea
+`/storage/informarcpe`, construye y levanta. Para actualizar, el mismo comando
+sin la URL.
 
-```bash
-test -f /storage/.disco-montado || echo "ERROR: /storage no esta montado"
-sudo git clone -b claude/wizardly-archimedes-q4q876 \
-  https://github.com/JP-Rev/Rivara-Interfaz-InformarCPE.git /srv/informarcpe
-```
+La primera vez va a cortar pidiendo el `.env` —es lo que hace el script cuando
+hay un `.env.example` y no un `.env`—, así que el orden real es: correrlo,
+poner los certificados, completar el `.env` y volver a correrlo.
 
 ### Los certificados de ARCA
 
