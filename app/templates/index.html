@@ -1,41 +1,150 @@
 {% extends "base.html" %}
 
 {% block contenido %}
-<form class="rv-card tarjeta" method="post" action="/generar" enctype="multipart/form-data">
-  <h2 class="tarjeta__titulo">Números de CTG a informar</h2>
-  <p class="tarjeta__ayuda">
-    Pegá un CTG por línea, o subí el archivo que genera <code>ctg_soja.py</code>.
-    De ese archivo se toman también la fecha del movimiento y el peso que entró
-    a stock, que son de la balanza y no están en ARCA. Todo lo demás
+<div class="ic-titulo">
+  <h2>Números de CTG a informar</h2>
+  <span class="rv-meta" id="contador"></span>
+</div>
+
+<form class="rv-card ic-tarjeta" method="post" action="/generar" enctype="multipart/form-data" id="formulario">
+  <p class="ic-ayuda">
+    Arrastrá el archivo que genera <code>ctg_soja.py</code>, o pegá los CTG uno
+    por línea. Del archivo se toman también la fecha del movimiento y el peso
+    que entró a stock, que son de la balanza y no están en ARCA; todo lo demás
     —intervinientes, pesos de la carta, grano, campaña— lo trae ARCA.
   </p>
 
   {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
 
+  <!-- Zona de arrastre. El punteado es la única línea de la app: acá no es
+       decoración sino la señal de que algo se puede soltar adentro. -->
+  <label class="ic-soltar" id="zona">
+    <input type="file" id="archivo" name="archivo" accept=".csv,.txt" hidden>
+    <span class="rv-disco rv-disco--md" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4M8 8l4-4 4 4" />
+        <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+      </svg>
+    </span>
+    <span class="ic-soltar-texto">
+      <strong id="zona-titulo">Soltá acá el CSV del script</strong>
+      <small id="zona-detalle">o tocá para elegirlo — .csv o .txt</small>
+    </span>
+  </label>
+
   <div class="rv-campo">
-    <label class="rv-label" for="ctgs">CTG (uno por línea, hasta {{ max_ctg }})</label>
-    <textarea class="rv-input" id="ctgs" name="ctgs" rows="10" spellcheck="false"
+    <label class="rv-label" for="ctgs">O pegá los CTG, uno por línea</label>
+    <textarea class="rv-input" id="ctgs" name="ctgs" rows="9" spellcheck="false"
               placeholder="10235396826&#10;10235401125">{{ ctgs or '' }}</textarea>
   </div>
 
-  <div class="rv-campo">
-    <label class="rv-label" for="archivo">…o el CSV del script</label>
-    <input class="rv-input" type="file" id="archivo" name="archivo" accept=".csv,.txt">
-  </div>
-
-  <div class="acciones">
-    <button class="rv-btn rv-btn--primario" type="submit">Consultar ARCA y generar el XLSX</button>
-    <span class="acciones__nota">Tarda alrededor de un segundo por CTG.</span>
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit" id="enviar">
+      Consultar ARCA y generar el XLSX
+    </button>
+    <span class="rv-meta" id="estado">Tarda alrededor de un segundo por CTG.</span>
   </div>
 </form>
 
-<div class="rv-card tarjeta">
-  <h2 class="tarjeta__titulo">Cómo sale la lista de CTG</h2>
-  <p class="tarjeta__ayuda">
-    En el servidor donde está Oracle, <code>scripts/ctg_soja.py</code> consulta
-    los ingresos a planta de soja (especie 38) de un rango de fechas y deja un
-    CSV con los CTG. Ese archivo es el que se sube acá.
+<div class="rv-card ic-tarjeta">
+  <h3>Cómo sale la lista de CTG</h3>
+  <p class="ic-ayuda">
+    En el equipo donde está Oracle, <code>ctg_soja.py</code> consulta los
+    ingresos a planta de soja (especie 38) de un rango de fechas en las tres
+    sociedades y deja un CSV con los CTG. Ese archivo es el que se sube acá.
   </p>
-  <pre class="codigo">python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07</pre>
+  <pre class="ic-codigo">python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07</pre>
 </div>
+
+<script>
+  // Arrastrar y soltar sobre la zona, con el <input file> como respaldo: si el
+  // navegador no soporta DataTransfer, el click sigue funcionando igual.
+  const zona = document.getElementById('zona')
+  const archivo = document.getElementById('archivo')
+  const titulo = document.getElementById('zona-titulo')
+  const detalle = document.getElementById('zona-detalle')
+  const ctgs = document.getElementById('ctgs')
+  const contador = document.getElementById('contador')
+  const formulario = document.getElementById('formulario')
+  const enviar = document.getElementById('enviar')
+  const estado = document.getElementById('estado')
+
+  const kb = (bytes) => `${Math.max(1, Math.round(bytes / 1024))} kB`
+
+  function mostrar(archivoElegido) {
+    if (!archivoElegido) return
+    zona.classList.add('ic-soltar--cargado')
+    titulo.textContent = archivoElegido.name
+    detalle.textContent = `${kb(archivoElegido.size)} — tocá para cambiarlo`
+    contar()
+  }
+
+  archivo.addEventListener('change', () => mostrar(archivo.files[0]))
+
+  // dragover hay que cancelarlo en los dos: sin eso el navegador abre el
+  // archivo en una pestaña nueva en lugar de entregárnoslo.
+  ;['dragenter', 'dragover'].forEach((evento) =>
+    zona.addEventListener(evento, (e) => {
+      e.preventDefault()
+      zona.classList.add('ic-soltar--encima')
+    })
+  )
+
+  ;['dragleave', 'dragend'].forEach((evento) =>
+    zona.addEventListener(evento, () => zona.classList.remove('ic-soltar--encima'))
+  )
+
+  zona.addEventListener('drop', (e) => {
+    e.preventDefault()
+    zona.classList.remove('ic-soltar--encima')
+    const soltado = e.dataTransfer.files[0]
+    if (!soltado) return
+    try {
+      const lista = new DataTransfer()
+      lista.items.add(soltado)
+      archivo.files = lista.files
+      mostrar(soltado)
+    } catch (error) {
+      // Sin DataTransfer no se puede cargar el input; se lee el texto y se
+      // pega en el textarea, que termina en el mismo lugar del servidor.
+      soltado.text().then((texto) => {
+        ctgs.value = texto
+        contar()
+      })
+    }
+  })
+
+  // Soltar fuera de la zona no tiene que navegar a otra página.
+  ;['dragover', 'drop'].forEach((evento) =>
+    document.addEventListener(evento, (e) => {
+      if (!zona.contains(e.target)) e.preventDefault()
+    })
+  )
+
+  // Cuántos CTG hay cargados, para no pasarse del máximo sin darse cuenta.
+  const MAXIMO = {{ max_ctg }}
+
+  function contar() {
+    if (archivo.files.length) {
+      contador.textContent = 'archivo cargado'
+      contador.classList.remove('ic-exceso')
+      return
+    }
+    const lineas = ctgs.value.split('\n').filter((l) => l.trim()).length
+    contador.textContent = lineas ? `${lineas} ${lineas === 1 ? 'línea' : 'líneas'}` : ''
+    contador.classList.toggle('ic-exceso', lineas > MAXIMO)
+  }
+
+  ctgs.addEventListener('input', contar)
+  contar()
+
+  // La consulta a ARCA puede tardar minutos: sin esto parece colgada y se
+  // vuelve a apretar el botón.
+  formulario.addEventListener('submit', () => {
+    enviar.disabled = true
+    enviar.textContent = 'Consultando ARCA…'
+    estado.textContent = 'No cierres la pestaña; cada CTG tarda alrededor de un segundo.'
+  })
+</script>
 {% endblock %}

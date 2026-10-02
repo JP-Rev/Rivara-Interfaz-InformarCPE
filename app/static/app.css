@@ -1,6 +1,7 @@
-/* Solo disposición. Color, radio y sombra salen de las variables --rv-* de
-   rivara-ui.css; si acá apareciera un hex, la app quedaría desfasada la próxima
-   vez que se retoque la paleta del portal. */
+/* Solo disposición, con las mismas medidas que portal.css del portal: 20px de
+   padding, 22px entre bloques, 14px dentro de un bloque. Color, radio y sombra
+   salen de las variables --rv-* de rivara-ui.css; si acá apareciera un hex, la
+   app quedaría desfasada la próxima vez que se retoque la paleta. */
 
 /* Archivo va empaquetada, nunca desde Google Fonts: el stack corre en una LAN
    que puede no tener salida a internet. Si los archivos no están, rivara-ui.css
@@ -13,41 +14,81 @@
   src: url('/static/fuentes/archivo-variable.woff2') format('woff2');
 }
 
-.barra {
+.ic {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 1120px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 20px;
+  padding-top: max(20px, env(safe-area-inset-top));
+}
+
+/* ---- Barra superior ---- */
+
+.ic-barra { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.ic-barra-acciones { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; }
+
+/* ---- Encabezado ---- */
+
+.ic-hero { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+
+/* El logo es un PNG claro y opaco: sobre el degradé necesita su propio
+   recuadro blanco o queda un rectángulo sucio. */
+.ic-hero-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  padding: 5px;
+  background: #fff;
+  border-radius: 12px;
+}
+
+.ic-hero-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.ic-hero-texto { display: flex; flex-direction: column; min-width: 0; flex: 1 1 240px; }
+.ic-hero-texto strong { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+.ic-hero-texto small { font-size: 13.5px; color: rgba(255, 255, 255, 0.9); }
+
+.ic-hero-cifras { display: flex; gap: 20px; flex-wrap: wrap; }
+.ic-hero-cifras > span { display: flex; flex-direction: column; }
+.ic-hero-cifras strong { font-size: 18px; font-weight: 800; line-height: 1.1; }
+
+.ic-hero-cifras small {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ---- Cuerpo ---- */
+
+.ic-cuerpo { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start; }
+.ic-columna { flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+.ic-titulo {
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px max(16px, env(safe-area-inset-left));
-  padding-top: max(14px, env(safe-area-inset-top));
-  background: var(--rv-surface);
-  box-shadow: var(--rv-sombra);
-}
-
-.barra__marca { display: flex; align-items: center; gap: 12px; }
-.barra__titulo { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
-.barra__acciones { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.barra__usuario { font-size: 13px; color: var(--rv-texto-3); }
-
-.contenido {
-  display: grid;
   gap: 16px;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 20px 16px 48px;
+  flex-wrap: wrap;
 }
 
-.tarjeta { display: grid; gap: 14px; }
-.tarjeta__titulo { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
-.tarjeta__ayuda { margin: 0; font-size: 14px; font-weight: 600; color: var(--rv-texto-2); text-wrap: pretty; }
+.ic-titulo h2 { font-size: 22px; }
+.ic-exceso { color: var(--rv-bordo); font-weight: 700; }
 
-textarea.rv-input { resize: vertical; min-height: 140px; line-height: 1.5; }
+.ic-tarjeta { display: flex; flex-direction: column; gap: 14px; }
+.ic-ayuda { font-size: 14px; font-weight: 600; color: var(--rv-texto-2); text-wrap: pretty; }
 
-.acciones { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.acciones__nota { font-size: 13px; color: var(--rv-texto-3); }
+textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 
-.codigo {
+.ic-acciones { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+.ic-codigo {
   margin: 0;
   padding: 12px 14px;
   border-radius: var(--rv-r-sm);
@@ -56,28 +97,76 @@ textarea.rv-input { resize: vertical; min-height: 140px; line-height: 1.5; }
   overflow-x: auto;
 }
 
-.resumen { display: flex; flex-wrap: wrap; gap: 10px; }
+/* ---- Zona de arrastre ----
+   El punteado es la única línea de la app. En el resto la separación la hace
+   la sombra, pero acá la línea es la señal de que hay algo que se puede soltar
+   adentro: sin ella, el recuadro parece una tarjeta más. */
 
-.resumen__dato {
-  display: grid;
+.ic-soltar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--rv-tint);
+  border: 2px dashed var(--rv-tint-borde);
+  border-radius: var(--rv-r-lg);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ic-soltar:hover { border-color: var(--rv-verde); }
+.ic-soltar:focus-within { outline: 2px solid var(--rv-verde); outline-offset: 2px; }
+
+.ic-soltar--encima {
+  background: #fff;
+  border-color: var(--rv-verde);
+  border-style: solid;
+}
+
+.ic-soltar--cargado { border-style: solid; border-color: var(--rv-verde); }
+
+.ic-soltar .rv-disco { background: var(--rv-surface); }
+.ic-soltar-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ic-soltar-texto strong { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.ic-soltar-texto small { font-size: 13px; color: var(--rv-texto-3); }
+
+/* ---- Resultado ---- */
+
+.ic-resumen { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.ic-resumen-dato {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
-  flex: 1 1 140px;
+  flex: 1 1 150px;
   padding: 12px 14px;
   border-radius: var(--rv-r-md);
   background: var(--rv-tint);
 }
 
-.resumen__numero { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
-.resumen__etiqueta { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--rv-texto-4); }
+.ic-resumen-numero { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1; }
 
-.lista { margin: 0; padding-left: 18px; font-size: 14px; display: grid; gap: 4px; }
-.lista--compacta { font-size: 13px; padding-left: 16px; }
+.ic-resumen-etiqueta {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rv-texto-4);
+}
+
+.ic-lista { margin: 0; padding-left: 18px; font-size: 14px; display: grid; gap: 4px; }
+.ic-lista--compacta { font-size: 13px; padding-left: 16px; }
 
 /* En el celular la tabla no entra: scrollea sola en vez de desbordar la página. */
-.tabla-scroll { overflow-x: auto; }
-.tabla-scroll .rv-tabla { min-width: 760px; }
+.ic-tabla-scroll { overflow-x: auto; }
+.ic-tabla-scroll .rv-tabla { min-width: 780px; }
 
 @media (max-width: 640px) {
-  .barra { align-items: flex-start; }
-  .resumen__dato { flex-basis: 100%; }
+  .ic { padding: 16px; gap: 18px; }
+  .ic-barra-acciones { margin-left: 0; }
+  .ic-resumen-dato { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ic-soltar { transition: none; }
 }

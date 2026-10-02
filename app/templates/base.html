@@ -3,46 +3,53 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#3c5a32">
   <title>{% block titulo %}Informar CPE a Visec{% endblock %} — Rivara</title>
+  <link rel="icon" href="/static/logo-rivara.png">
   <link rel="stylesheet" href="/static/rivara-ui.css">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <header class="barra">
-    <div class="barra__marca">
-      <span class="rv-disco rv-disco--sm">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 6h10v10H3zM13 9h4l4 4v3h-8z" />
-          <circle cx="7" cy="18" r="2" />
-          <circle cx="17.5" cy="18" r="2" />
-        </svg>
-      </span>
-      <div>
-        <p class="rv-eyebrow">Compañía Agrícola Rivara</p>
-        <h1 class="barra__titulo">Informar CPE a Visec</h1>
-      </div>
-    </div>
-    <div class="barra__acciones">
-      <span class="rv-chip {% if entorno == 'produccion' %}rv-chip--solido{% else %}rv-chip--neutro{% endif %}">
-        ARCA: {{ entorno }}
-      </span>
-      {% if usuario and usuario.name %}<span class="barra__usuario">{{ usuario.name }}</span>{% endif %}
-      {% if portal_url %}<a class="rv-btn rv-btn--fantasma" href="{{ portal_url }}">Volver al portal</a>{% endif %}
+<div class="ic">
+  <header class="ic-barra">
+    <span class="rv-chip {% if es_produccion %}rv-chip--tint{% else %}rv-chip--neutro{% endif %}">
+      ARCA · {{ entorno }}
+    </span>
+    <div class="ic-barra-acciones">
+      {% if usuario and usuario.name %}<span class="rv-meta">{{ usuario.name }}</span>{% endif %}
+      {% if portal_url %}
+        <a class="rv-btn rv-btn--secundario" href="{{ portal_url }}">Volver al portal</a>
+      {% endif %}
     </div>
   </header>
 
-  <main class="contenido">
-    {% if problemas %}
-      <div class="rv-card">
-        <p class="rv-nota rv-nota--error">
-          Falta configuración antes de poder consultar ARCA:
-          <ul>{% for problema in problemas %}<li>{{ problema }}</li>{% endfor %}</ul>
-          Se corrige en el <code>.env</code> del servidor.
-        </p>
-      </div>
-    {% endif %}
-    {% block contenido %}{% endblock %}
-  </main>
+  <section class="rv-hero ic-hero">
+    <span class="ic-hero-logo"><img src="/static/logo-rivara.png" alt="Rivara"></span>
+    <span class="ic-hero-texto">
+      <strong>Informar CPE a Visec</strong>
+      <small>Las cartas de porte salen de ARCA; acá se arma el XLSX que pide Visec.</small>
+    </span>
+    <span class="ic-hero-cifras">
+      <span><strong>{{ entorno }}</strong><small>Entorno</small></span>
+      <span><strong class="rv-num">{{ max_ctg }}</strong><small>CTG por tanda</small></span>
+    </span>
+  </section>
+
+  {% if problemas %}
+    <div class="rv-card">
+      <p class="rv-nota rv-nota--error">
+        Falta configuración antes de poder consultar ARCA:
+        <ul>{% for problema in problemas %}<li>{{ problema }}</li>{% endfor %}</ul>
+        Se corrige en el <code>.env</code> del servidor.
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="ic-cuerpo">
+    <main class="ic-columna">
+      {% block contenido %}{% endblock %}
+    </main>
+  </div>
+</div>
 </body>
 </html>

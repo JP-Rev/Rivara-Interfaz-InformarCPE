@@ -177,11 +177,16 @@ def parsear_entrada(texto: str) -> tuple[list[tuple[str, dict[str, str]]], list[
 # Rutas
 # ---------------------------------------------------------------------------
 
+# El .env guarda un identificador sin tildes; en pantalla se lee en castellano.
+ETIQUETA_ENTORNO = {"produccion": "Producción", "homologacion": "Homologación"}
+
+
 def _contexto(request: Request, usuario: dict, **extra) -> dict:
     return {
         "request": request,
         "usuario": usuario,
-        "entorno": config.entorno,
+        "entorno": ETIQUETA_ENTORNO.get(config.entorno, config.entorno),
+        "es_produccion": config.entorno == "produccion",
         "problemas": config.validar(),
         "max_ctg": MAX_CTG,
         "portal_url": config.portal_url,

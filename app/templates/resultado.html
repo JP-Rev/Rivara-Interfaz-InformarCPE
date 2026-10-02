@@ -2,26 +2,29 @@
 {% block titulo %}Resultado{% endblock %}
 
 {% block contenido %}
-<div class="rv-card tarjeta">
-  <h2 class="tarjeta__titulo">Resultado de la consulta</h2>
+<div class="ic-titulo">
+  <h2>Resultado de la consulta</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/">Hacer otra tanda</a>
+</div>
 
-  <div class="resumen">
-    <div class="resumen__dato">
-      <span class="resumen__numero rv-num">{{ filas | length }}</span>
-      <span class="resumen__etiqueta">CPE en el archivo</span>
+<div class="rv-card ic-tarjeta">
+  <div class="ic-resumen">
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ filas | length }}</span>
+      <span class="ic-resumen-etiqueta">CPE en el archivo</span>
     </div>
-    <div class="resumen__dato">
-      <span class="resumen__numero rv-num">{{ filas | selectattr('avisos') | list | length }}</span>
-      <span class="resumen__etiqueta">con avisos</span>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ filas | selectattr('avisos') | list | length }}</span>
+      <span class="ic-resumen-etiqueta">con avisos</span>
     </div>
-    <div class="resumen__dato">
-      <span class="resumen__numero rv-num">{{ fallidos | length }}</span>
-      <span class="resumen__etiqueta">no se pudieron consultar</span>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ fallidos | length }}</span>
+      <span class="ic-resumen-etiqueta">sin respuesta de ARCA</span>
     </div>
   </div>
 
   {% if archivo %}
-    <div class="acciones">
+    <div class="ic-acciones">
       <a class="rv-btn rv-btn--primario" href="/descargar/{{ archivo }}">Descargar el XLSX para Visec</a>
       <a class="rv-btn rv-btn--secundario" href="/">Hacer otra tanda</a>
     </div>
@@ -35,35 +38,37 @@
     {% endif %}
   {% else %}
     <p class="rv-nota rv-nota--error">No se pudo consultar ninguna CPE, así que no hay archivo.</p>
-    <div class="acciones"><a class="rv-btn rv-btn--secundario" href="/">Volver</a></div>
+    <div class="ic-acciones"><a class="rv-btn rv-btn--secundario" href="/">Volver</a></div>
   {% endif %}
 </div>
 
 {% if avisos_entrada %}
-<div class="rv-card tarjeta">
-  <h2 class="tarjeta__titulo">Sobre lo que cargaste</h2>
-  <ul class="lista">{% for aviso in avisos_entrada %}<li>{{ aviso }}</li>{% endfor %}</ul>
+<div class="rv-card ic-tarjeta">
+  <h3>Sobre lo que cargaste</h3>
+  <ul class="ic-lista">{% for aviso in avisos_entrada %}<li>{{ aviso }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
 
 {% if fallidos %}
-<div class="rv-card tarjeta">
-  <h2 class="tarjeta__titulo">CTG que ARCA no devolvió</h2>
-  <table class="rv-tabla">
-    <thead><tr><th>CTG</th><th>Qué contestó ARCA</th></tr></thead>
-    <tbody>
-      {% for fallido in fallidos %}
-      <tr><td class="rv-num">{{ fallido.ctg }}</td><td>{{ fallido.detalle }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="rv-card ic-tarjeta">
+  <h3>CTG que ARCA no devolvió</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Qué contestó ARCA</th></tr></thead>
+      <tbody>
+        {% for fallido in fallidos %}
+        <tr><td class="rv-num">{{ fallido.ctg }}</td><td>{{ fallido.detalle }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 
 {% if filas %}
-<div class="rv-card tarjeta">
-  <h2 class="tarjeta__titulo">CPE incluidas</h2>
-  <div class="tabla-scroll">
+<div class="rv-card ic-tarjeta">
+  <h3>CPE incluidas</h3>
+  <div class="ic-tabla-scroll">
     <table class="rv-tabla">
       <thead>
         <tr>
@@ -83,7 +88,7 @@
           <td class="rv-num">{{ fila.valores['Peso Ingreso Stock (Kg)'] or '—' }}</td>
           <td>
             {% if fila.avisos %}
-              <ul class="lista lista--compacta">{% for aviso in fila.avisos %}<li>{{ aviso }}</li>{% endfor %}</ul>
+              <ul class="ic-lista ic-lista--compacta">{% for aviso in fila.avisos %}<li>{{ aviso }}</li>{% endfor %}</ul>
             {% else %}
               <span class="rv-chip rv-chip--tint">completa</span>
             {% endif %}
