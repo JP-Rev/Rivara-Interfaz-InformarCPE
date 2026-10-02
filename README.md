@@ -282,16 +282,15 @@ distinta.
 | Campaña | `datosCarga.cosecha` |
 | Peso Neto Carga (Kg) | `datosCarga.pesoBruto` − `datosCarga.pesoTara` |
 | Peso Ingreso Stock (Kg) | CSV del script (`peso_ingreso_stock`); si no, `datosCarga.pesoBrutoDescarga` − `pesoTaraDescarga` |
+| Número RENSPA | CSV del script (`IPL_NUMERO_RENSPA`) |
+| Número CTG Asignado | el mismo CTG de la CPE |
+| Peso Neto Carga (Kg) por UP | CSV del script (`IPL_KILOS_ESTIMADOS`) |
+| Peso Neto Descarga (Kg) por UP | el mismo valor que Peso Ingreso Stock |
 | Último Almacenamiento, Tipo Movimiento | valores fijos del `.env` |
 
 Solo una CPE en estado **CN (confirmada)** o **DD (descargada en destino)**
 tiene los pesos de descarga definitivos. En cualquier otro estado la app la
 incluye igual, pero con un aviso.
-
-Quedan **sin completar**, porque no están en la respuesta de
-`consultarCPEAutomotor` (confirmado con el manual v2.0.5): **Número RENSPA**,
-**Número CTG Asignado** y los dos **pesos por UP**. Hay que
-confirmar con Visec si son obligatorios para este tipo de movimiento.
 
 También falta que Visec indique qué valores acepta en **Tipo Movimiento** y
 **Último Almacenamiento**, y en qué formato quiere el número de CPE y las

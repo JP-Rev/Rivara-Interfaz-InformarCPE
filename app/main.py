@@ -130,6 +130,9 @@ ALIAS = {
     "fecha_arribo": "fecha_movimiento",
     "peso_ingreso_stock": "peso_ingreso_stock",
     "peso_neto": "peso_ingreso_stock",
+    "kilos_estimados": "kilos_estimados",
+    "renspa": "renspa",
+    "numero_renspa": "renspa",
 }
 
 
@@ -281,6 +284,18 @@ async def generar(
         _contexto(request, usuario, filas=filas, fallidos=fallidos,
                   avisos_entrada=avisos_entrada, archivo=nombre),
     )
+
+
+@app.get("/egresos", response_class=HTMLResponse)
+def egresos(request: Request):
+    """Solapa de egresos: todavia sin construir."""
+    usuario = usuario_de(request)
+    if not usuario:
+        respuesta = _sin_sesion(request)
+        if isinstance(respuesta, HTTPException):
+            raise respuesta
+        return respuesta
+    return plantillas.TemplateResponse(request, "egresos.html", _contexto(request, usuario, seccion="egresos"))
 
 
 @app.get("/descargar/{nombre}")

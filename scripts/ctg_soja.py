@@ -11,8 +11,8 @@ Consulta INGRESOS_PLANTAS de un esquema por sociedad (SYSADMIN de Rivara,
 SYSADMIN_ELN de La Tranquera Verde, SYSADMIN_PRA de Pradera Natural). Por
 omision consulta los tres y agrega al CSV de que empresa es cada CTG.
 
-Ademas del CTG exporta la fecha del movimiento y el peso neto de balanza, que
-son los dos datos que ARCA no tiene. El CSV resultante se sube a la app
+Ademas del CTG exporta lo que ARCA no tiene: la fecha del movimiento, el peso
+neto de balanza, los kilos estimados y el RENSPA. El CSV resultante se sube a la app
 "Informar CPE a Visec".
 
 Uso:
@@ -65,6 +65,7 @@ ESQUEMAS_POR_OMISION = {
 # "empresa" y "esquema" los agrega Python, no la consulta.
 CAMPOS_SQL = [
     "ctg", "numero_cpe", "fecha_movimiento", "peso_ingreso_stock",
+    "kilos_estimados", "renspa",
     "punto_ingreso", "numero_ingreso", "planta", "cosecha", "cuit_productor",
 ]
 COLUMNAS = CAMPOS_SQL + ["empresa", "esquema"]
@@ -75,6 +76,8 @@ SELECT = """
     NVL(TRIM(TO_CHAR(I.IPL_SUCURSAL_INTERNA_CPE)), '') || LPAD(NVL(TRIM(TO_CHAR(I.IPL_NUMERO_INTERNO_CPE)), ''), 8, '0') || '|' ||
     TO_CHAR(NVL(I.IPL_FECHA_HORA_CONF_ARRIBO, I.IPL_FECHA_HORA), 'YYYY-MM-DD HH24:MI:SS') || '|' ||
     NVL(TRIM(TO_CHAR(I.IPL_PESO_NETO, 'FM999999999999990', 'NLS_NUMERIC_CHARACTERS=''.,''')), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_KILOS_ESTIMADOS, 'FM999999999999990', 'NLS_NUMERIC_CHARACTERS=''.,''')), '') || '|' ||
+    REPLACE(NVL(TRIM(TO_CHAR(I.IPL_NUMERO_RENSPA)), ''), '|', ' ') || '|' ||
     NVL(TRIM(TO_CHAR(I.IPL_PUNTO_INGRESO)), '') || '|' ||
     NVL(TRIM(TO_CHAR(I.IPL_NUMERO_INGRESO)), '') || '|' ||
     NVL(TRIM(TO_CHAR(I.IPL_PLANTA)), '') || '|' ||

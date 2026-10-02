@@ -8,10 +8,11 @@
 
 <form class="rv-card ic-tarjeta" method="post" action="/generar" enctype="multipart/form-data" id="formulario">
   <p class="ic-ayuda">
-    Arrastrá el archivo que genera <code>ctg_soja.py</code>, o pegá los CTG uno
-    por línea. Del archivo se toman también la fecha del movimiento y el peso
-    que entró a stock, que son de la balanza y no están en ARCA; todo lo demás
-    —intervinientes, pesos de la carta, grano, campaña— lo trae ARCA.
+    Arrastrá el archivo que genera <code>ctg_soja.py</code>, o cargá los CTG a
+    mano con el botón de abajo. Del archivo se toman también los datos del sistema que no están
+    en ARCA: fecha del movimiento, peso que entró a stock, kilos estimados y
+    RENSPA. Todo lo demás —intervinientes, pesos de la carta, grano, campaña— lo
+    trae ARCA.
   </p>
 
   {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
@@ -33,15 +34,21 @@
     </span>
   </label>
 
-  <div class="rv-campo">
-    <label class="rv-label" for="ctgs">O pegá los CTG, uno por línea</label>
-    <textarea class="rv-input" id="ctgs" name="ctgs" rows="9" spellcheck="false"
+  <!-- La carga a mano es la excepción: queda escondida detrás de un botón y
+       se abre sola si ya trae texto (por ejemplo, al volver con un error). -->
+  <div class="rv-campo" id="campo-manual" {% if not ctgs %}hidden{% endif %}>
+    <label class="rv-label" for="ctgs">CTG, uno por línea</label>
+    <textarea class="rv-input" id="ctgs" name="ctgs" rows="6" spellcheck="false"
               placeholder="10235396826&#10;10235401125">{{ ctgs or '' }}</textarea>
   </div>
 
   <div class="ic-acciones">
     <button class="rv-btn rv-btn--primario" type="submit" id="enviar">
       Consultar ARCA y generar el XLSX
+    </button>
+    <button class="rv-btn rv-btn--secundario" type="button" id="manual"
+            aria-controls="campo-manual" aria-expanded="{{ 'true' if ctgs else 'false' }}">
+      {{ 'Ocultar carga manual' if ctgs else 'Cargar CTG a mano' }}
     </button>
     <span class="rv-meta" id="estado">Tarda alrededor de un segundo por CTG.</span>
   </div>
@@ -135,6 +142,16 @@
     contador.textContent = lineas ? `${lineas} ${lineas === 1 ? 'línea' : 'líneas'}` : ''
     contador.classList.toggle('ic-exceso', lineas > MAXIMO)
   }
+
+  const campoManual = document.getElementById('campo-manual')
+  const manual = document.getElementById('manual')
+  manual.addEventListener('click', () => {
+    const abrir = campoManual.hidden
+    campoManual.hidden = !abrir
+    manual.setAttribute('aria-expanded', String(abrir))
+    manual.textContent = abrir ? 'Ocultar carga manual' : 'Cargar CTG a mano'
+    if (abrir) ctgs.focus()
+  })
 
   ctgs.addEventListener('input', contar)
   contar()

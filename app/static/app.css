@@ -25,6 +25,10 @@
   padding-top: max(20px, env(safe-area-inset-top));
 }
 
+/* Las clases del kit (.rv-campo es display:flex) le ganan al atributo hidden
+   del navegador: sin esto, un campo "escondido" se sigue viendo. */
+[hidden] { display: none !important; }
+
 /* ---- Barra superior ---- */
 
 .ic-barra { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
@@ -63,6 +67,31 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.85);
+}
+
+/* ---- Solapas Ingresos / Egresos ----
+   Mismo lenguaje que la navegacion del portal: la activa es verde lleno, la
+   otra una tarjeta chica blanca. */
+
+.ic-solapas { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.ic-solapa {
+  padding: 10px 20px;
+  border-radius: var(--rv-r-pill);
+  background: var(--rv-surface);
+  box-shadow: var(--rv-sombra);
+  color: var(--rv-verde-osc);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ic-solapa:hover { color: var(--rv-verde-osc); background: var(--rv-tint); }
+
+.ic-solapa--activa,
+.ic-solapa--activa:hover {
+  background: var(--rv-verde);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(35, 48, 31, 0.28);
 }
 
 /* ---- Cuerpo ---- */

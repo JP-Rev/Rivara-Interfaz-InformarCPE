@@ -101,6 +101,12 @@ def _kilos(datos: Any, ruta_bruto: str, ruta_tara: str) -> str:
     return str(int(neto.to_integral_value())) if neto > 0 else ""
 
 
+def _kilos_propios(valor: str | None) -> str:
+    """Kilos que vienen del CSV del sistema, redondeados a entero."""
+    numero = _numero(valor)
+    return str(int(numero.to_integral_value())) if numero and numero > 0 else ""
+
+
 def _fecha(valor: Any, formato: str) -> str:
     if isinstance(valor, (datetime, date)):
         return valor.strftime(formato)
@@ -137,9 +143,9 @@ class Fila:
 def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fila:
     """Traduce una CPE de ARCA a una fila de Visec.
 
-    `propios` son los datos del sistema (los que trae el CSV de `ctg_soja.py`):
-    la fecha del movimiento y el peso que entró a stock, que son de la balanza
-    y no de ARCA.
+    `propios` son los datos del sistema (los que trae el CSV de `ctg_soja.py`)
+    que ARCA no tiene: la fecha del movimiento, el peso que entró a stock, los
+    kilos estimados y el RENSPA.
     """
     cpe = consulta.cpe or {}
     propios = propios or {}
@@ -153,10 +159,7 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         )
         avisos.append("Fecha de movimiento tomada de ARCA: verificar que sea la del ingreso a planta")
 
-    peso_stock = ""
-    if propios.get("peso_ingreso_stock"):
-        peso = _numero(propios["peso_ingreso_stock"])
-        peso_stock = str(int(peso.to_integral_value())) if peso and peso > 0 else ""
+    peso_stock = _kilos_propios(propios.get("peso_ingreso_stock"))
     if not peso_stock:
         peso_stock = _kilos(cpe, "datosCarga.pesoBrutoDescarga", "datosCarga.pesoTaraDescarga")
 
@@ -185,10 +188,13 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         "Código Producto": producto,
         "Campaña": _texto(cpe, "datosCarga.cosecha"),
         "Peso Neto Carga (Kg)": _kilos(cpe, "datosCarga.pesoBruto", "datosCarga.pesoTara"),
-        "Número RENSPA": "",
-        "Número CTG Asignado": "",
-        "Peso Neto Carga (Kg) por UP": "",
-        "Peso Neto Descarga (Kg) por UP": "",
+        "Número RENSPA": (propios.get("renspa") or "").strip(),
+        # Criterio de Rivara: el CTG asignado es el mismo CTG de la CPE.
+        "Número CTG Asignado": _texto(cpe, "cabecera.nroCTG") or consulta.ctg,
+        # Por UP (unidad productiva): la carga sale de IPL_KILOS_ESTIMADOS y la
+        # descarga es el mismo peso que entró a stock.
+        "Peso Neto Carga (Kg) por UP": _kilos_propios(propios.get("kilos_estimados")),
+        "Peso Neto Descarga (Kg) por UP": peso_stock,
         "Peso Ingreso Stock (Kg)": peso_stock,
         "Último Almacenamiento": config.ultimo_almacenamiento,
         "Tipo Movimiento": config.tipo_movimiento,

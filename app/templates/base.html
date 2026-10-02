@@ -35,6 +35,13 @@
     </span>
   </section>
 
+  <nav class="ic-solapas" aria-label="Tipo de movimiento">
+    <a class="ic-solapa {% if seccion != 'egresos' %}ic-solapa--activa{% endif %}" href="/"
+       {% if seccion != 'egresos' %}aria-current="page"{% endif %}>Ingresos</a>
+    <a class="ic-solapa {% if seccion == 'egresos' %}ic-solapa--activa{% endif %}" href="/egresos"
+       {% if seccion == 'egresos' %}aria-current="page"{% endif %}>Egresos</a>
+  </nav>
+
   {% if problemas %}
     <div class="rv-card">
       <p class="rv-nota rv-nota--error">
