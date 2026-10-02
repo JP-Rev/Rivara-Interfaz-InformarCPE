@@ -1,0 +1,83 @@
+/* Solo disposición. Color, radio y sombra salen de las variables --rv-* de
+   rivara-ui.css; si acá apareciera un hex, la app quedaría desfasada la próxima
+   vez que se retoque la paleta del portal. */
+
+/* Archivo va empaquetada, nunca desde Google Fonts: el stack corre en una LAN
+   que puede no tener salida a internet. Si los archivos no están, rivara-ui.css
+   ya cae a la tipografía del sistema (ver README). */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/static/fuentes/archivo-variable.woff2') format('woff2');
+}
+
+.barra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px max(16px, env(safe-area-inset-left));
+  padding-top: max(14px, env(safe-area-inset-top));
+  background: var(--rv-surface);
+  box-shadow: var(--rv-sombra);
+}
+
+.barra__marca { display: flex; align-items: center; gap: 12px; }
+.barra__titulo { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+.barra__acciones { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.barra__usuario { font-size: 13px; color: var(--rv-texto-3); }
+
+.contenido {
+  display: grid;
+  gap: 16px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px 16px 48px;
+}
+
+.tarjeta { display: grid; gap: 14px; }
+.tarjeta__titulo { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.01em; }
+.tarjeta__ayuda { margin: 0; font-size: 14px; font-weight: 600; color: var(--rv-texto-2); text-wrap: pretty; }
+
+textarea.rv-input { resize: vertical; min-height: 140px; line-height: 1.5; }
+
+.acciones { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.acciones__nota { font-size: 13px; color: var(--rv-texto-3); }
+
+.codigo {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--rv-r-sm);
+  background: var(--rv-bg);
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+.resumen { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.resumen__dato {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 140px;
+  padding: 12px 14px;
+  border-radius: var(--rv-r-md);
+  background: var(--rv-tint);
+}
+
+.resumen__numero { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+.resumen__etiqueta { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--rv-texto-4); }
+
+.lista { margin: 0; padding-left: 18px; font-size: 14px; display: grid; gap: 4px; }
+.lista--compacta { font-size: 13px; padding-left: 16px; }
+
+/* En el celular la tabla no entra: scrollea sola en vez de desbordar la página. */
+.tabla-scroll { overflow-x: auto; }
+.tabla-scroll .rv-tabla { min-width: 760px; }
+
+@media (max-width: 640px) {
+  .barra { align-items: flex-start; }
+  .resumen__dato { flex-basis: 100%; }
+}

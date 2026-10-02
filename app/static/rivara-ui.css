@@ -1,0 +1,457 @@
+/* ==========================================================================
+   Base visual compartida de las apps de Rivara
+   ==========================================================================
+
+   Es la identidad del portal (Rivara-Intranet), promovida a archivo compartido
+   en septiembre de 2026. Antes cada app la retipeaba a mano: el portal la tenia
+   en su index.css y Finanzas Axion la habia copiado token por token, con lo
+   cual el verde #3c5a32 vivia escrito en dos lugares y cambiarlo en uno dejaba
+   al otro viejo.
+
+   Paleta clara y unica, a proposito: el verde #3c5a32 y el bordo #7f2a24 son
+   colores de TEXTO sobre papel claro. Invertirlos a un tema oscuro deja verde
+   oscuro sobre casi negro y no se lee nada, asi que aca no hay
+   prefers-color-scheme. El tema oscuro, cuando se haga, se define aca y lo
+   heredan todas las apps de una.
+
+   COMO SE USA
+     cp /srv/ui/rivara-ui.css mi-app/src/rivara-ui.css
+
+     // main.jsx -- la base primero, lo propio despues
+     import './rivara-ui.css'
+     import './index.css'
+
+   NO SE EDITA DENTRO DE UNA APP. Si algo hace falta para todas, se cambia aca y
+   se vuelve a copiar. Si es de una sola app, va en su index.css usando estos
+   tokens.
+
+   Lo que NO va aca: los colores de serie de los graficos. No son marca sino
+   codificacion de datos, se eligen por separacion perceptual y contraste, y
+   cada app define los suyos.
+
+   SEPTIEMBRE 2026 -- REDISEÑO BLANCO Y VERDE
+   Se suman los tokens --rv-* y una capa de componentes (.rv-card, .rv-btn,
+   .rv-chip, .rv-nav-item, .rv-input...). Los nombres viejos (--primary, --bg,
+   --text...) siguen existiendo como alias de los nuevos, asi que una app que
+   todavia los use no se rompe al copiar esta version: cambia de aspecto, que es
+   justamente el objetivo, pero no deja de funcionar.
+
+   La tipografia pasa a ser una sola, Archivo. Cada app tiene que instalar
+   @fontsource/archivo e importar los pesos 400-800 desde su entrypoint; las
+   variables --serif y --mono quedan apuntando a Archivo para no romper las
+   hojas que todavia las nombren.
+
+   Horas Extra todavia usa la base anterior, que quedo en
+   rivara-ui-horasextra.css hasta que migre.
+   ========================================================================== */
+
+:root {
+  /* ---- Fondo y superficies ---- */
+  --rv-bg: #F4F3EC;          /* el papel sobre el que flota todo */
+  --rv-surface: #FFFFFF;     /* tarjetas, barras, campos */
+  --rv-tint: #EDF1E5;        /* verde muy claro: iconos, chips, hovers */
+  --rv-tint-borde: #D3DCC6;
+
+  /* ---- Verdes de marca ---- */
+  --rv-verde: #3c5a32;       /* accion primaria, texto de marca */
+  --rv-verde-osc: #2b4324;   /* hover de la primaria, enlaces */
+  --rv-verde-hondo: #33502E; /* extremo oscuro de los degrades */
+  --rv-lima: #8FB43C;        /* extremo claro de los degrades, indicadores */
+  --rv-bordo: #7f2a24;       /* solo para avisos: nunca como accion */
+
+  /* ---- Texto ---- */
+  --rv-texto: #23301F;
+  --rv-texto-2: #4A5540;     /* descripciones */
+  --rv-texto-3: #6E6957;     /* etiquetas secundarias */
+  --rv-texto-4: #7A6F55;     /* eyebrows, metadatos */
+
+  /* ---- Radios: nada es cuadrado ---- */
+  --rv-r-sm: 10px;
+  --rv-r-md: 14px;
+  --rv-r-lg: 16px;
+  --rv-r-pill: 999px;
+
+  /* ---- Elevacion. Tres pasos, ni uno mas. ---- */
+  --rv-sombra: 0 2px 10px rgba(35, 48, 31, 0.08);        /* reposo */
+  --rv-sombra-alta: 0 8px 22px rgba(35, 48, 31, 0.16);   /* hover */
+  --rv-sombra-accion: 0 4px 12px rgba(35, 48, 31, 0.26); /* boton primario */
+
+  /* ---- Degrades ---- */
+  --rv-grad-hero: linear-gradient(100deg, #33502E 0%, #3c5a32 58%, #8FB43C 100%);
+  --rv-grad-aviso: linear-gradient(120deg, #33502E, #7f2a24);
+
+  /* ---- Espaciado ---- */
+  --rv-e1: 4px;
+  --rv-e2: 8px;
+  --rv-e3: 12px;
+  --rv-e4: 16px;
+  --rv-e5: 22px;
+
+  --rv-fuente: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* ---- Alias de los nombres anteriores ----
+     Estan para que las apps que todavia usan la nomenclatura vieja sigan
+     andando al copiar esta version. En codigo nuevo usa los --rv-*. */
+  --primary: var(--rv-verde);
+  --accent: var(--rv-bordo);
+  --highlight: #e8830c;
+  --secondary: var(--rv-lima);
+
+  --verde-hondo: var(--rv-verde-hondo);
+  --verde-sidebar: #2B3F27;
+  --verde-panel: #3D4D39;
+  --lima: var(--rv-lima);
+  --verde-claro: var(--rv-tint);
+  --verde-borde: var(--rv-tint-borde);
+
+  --bg: var(--rv-bg);
+  --bg-alt: #FBFAF4;
+  --superficie: var(--rv-surface);
+  --campo: #F1F0E7;
+
+  --text: var(--rv-texto);
+  --text-light: var(--rv-texto-2);
+  --text-tenue: var(--rv-texto-4);
+  --text-apagado: var(--rv-texto-3);
+
+  --border: var(--rv-tint-borde);
+  --border-fuerte: var(--rv-tint-borde);
+  --border-tenue: #E4E1D2;
+  --shadow: var(--rv-sombra);
+
+  /* Antes habia tres familias; ahora es una. Los nombres se conservan. */
+  --serif: var(--rv-fuente);
+  --sans: var(--rv-fuente);
+  --mono: 'Archivo', ui-monospace, monospace;
+
+  font: 15px/1.5 var(--rv-fuente);
+  color-scheme: light; /* el sistema es claro: no hay tema oscuro */
+  color: var(--rv-texto);
+  background: var(--rv-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--rv-bg);
+  color: var(--rv-texto);
+  font-family: var(--rv-fuente);
+}
+
+#root { min-height: 100vh; width: 100%; display: flex; flex-direction: column; }
+
+a { color: var(--rv-verde-osc); text-decoration: none; }
+a:hover { color: var(--rv-verde); }
+
+button { font: inherit; }
+
+::selection { background: var(--rv-tint-borde); }
+
+/* El foco de teclado es del sistema, nunca el azul del navegador. */
+:focus-visible { outline: 2px solid var(--rv-verde); outline-offset: 2px; }
+
+/* ---- Tipografía ---- */
+
+h1, h2, h3 { margin: 0; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+h1 { font-size: 22px; }
+h2 { font-size: 22px; }
+h3 { font-size: 18px; }
+p { margin: 0; }
+
+.rv-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rv-texto-4);
+}
+
+.rv-meta { font-size: 13px; color: var(--rv-texto-4); }
+
+/* Alias del nombre anterior: lo usan pantallas que todavia no migraron. */
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rv-texto-4);
+}
+.rv-num { font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   Tarjeta — la unidad de composición. Todo vive dentro de una.
+   ========================================================================== */
+
+.rv-card {
+  background: var(--rv-surface);
+  border-radius: var(--rv-r-lg);
+  box-shadow: var(--rv-sombra);
+  padding: 20px;
+}
+
+.rv-card--enlace { display: block; color: var(--rv-texto); transition: box-shadow 0.18s ease; }
+.rv-card--enlace:hover { color: var(--rv-texto); box-shadow: var(--rv-sombra-alta); }
+
+.rv-hero {
+  border-radius: var(--rv-r-lg);
+  padding: 18px 22px;
+  background: var(--rv-grad-hero);
+  color: #fff;
+  box-shadow: 0 5px 16px rgba(35, 48, 31, 0.2);
+}
+
+.rv-aviso {
+  border-radius: var(--rv-r-lg);
+  padding: 20px;
+  background: var(--rv-grad-aviso);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(35, 48, 31, 0.2);
+}
+
+/* ==========================================================================
+   Botones — todos son píldoras.
+   ========================================================================== */
+
+.rv-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  border: 0;
+  border-radius: var(--rv-r-pill);
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.rv-btn:disabled { opacity: 0.45; cursor: default; }
+
+.rv-btn--primario {
+  background: var(--rv-verde);
+  color: #fff;
+  box-shadow: var(--rv-sombra-accion);
+}
+.rv-btn--primario:hover:not(:disabled) { background: var(--rv-verde-osc); }
+
+/* La secundaria es una tarjeta chica: fondo blanco y la misma sombra. */
+.rv-btn--secundario {
+  background: var(--rv-surface);
+  color: var(--rv-verde-osc);
+  font-weight: 600;
+  box-shadow: var(--rv-sombra);
+}
+.rv-btn--secundario:hover:not(:disabled) { background: var(--rv-tint); }
+
+.rv-btn--fantasma {
+  padding: 0;
+  background: transparent;
+  color: var(--rv-verde-osc);
+  font-size: 13px;
+  font-weight: 600;
+}
+.rv-btn--fantasma:hover:not(:disabled) { color: var(--rv-verde); }
+
+.rv-btn--peligro { background: var(--rv-bordo); color: #fff; box-shadow: var(--rv-sombra-accion); }
+.rv-btn--peligro:hover:not(:disabled) { background: #5e1f1a; }
+
+/* ==========================================================================
+   Chips y estados
+   ========================================================================== */
+
+.rv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: var(--rv-r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rv-chip--tint { background: var(--rv-tint); color: var(--rv-verde-osc); }
+.rv-chip--solido { background: var(--rv-verde); color: #fff; letter-spacing: 0; text-transform: none; font-size: 13px; padding: 8px 16px; }
+.rv-chip--neutro { background: var(--rv-bg); color: var(--rv-texto-3); }
+
+.rv-punto { width: 7px; height: 7px; border-radius: 50%; background: var(--rv-lima); }
+
+/* El disco es el contenedor canónico de un icono. */
+.rv-disco {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--rv-tint);
+  color: var(--rv-verde);
+}
+
+.rv-disco--sm { width: 42px; height: 42px; }
+.rv-disco--md { width: 48px; height: 48px; }
+
+/* ==========================================================================
+   Navegación lateral
+   ========================================================================== */
+
+.rv-nav { display: flex; flex-direction: column; gap: 6px; }
+
+.rv-nav-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 16px;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  color: var(--rv-texto);
+  background: transparent;
+  border: 0;
+  border-radius: var(--rv-r-md);
+  cursor: pointer;
+}
+
+.rv-nav-item:hover { background: var(--rv-tint); }
+
+.rv-nav-item--activo {
+  background: var(--rv-verde);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(35, 48, 31, 0.28);
+}
+
+.rv-nav-item--activo:hover { background: var(--rv-verde); }
+
+.rv-nav-conteo { font-size: 12px; font-weight: 700; opacity: 0.65; font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   Formularios
+   ========================================================================== */
+
+.rv-campo { display: flex; flex-direction: column; gap: 6px; }
+
+.rv-campo > label,
+.rv-label { font-size: 13px; font-weight: 700; color: var(--rv-texto-3); }
+
+.rv-input,
+.rv-select {
+  width: 100%;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--rv-texto);
+  background: var(--rv-surface);
+  border: 1px solid var(--rv-tint-borde);
+  border-radius: var(--rv-r-md);
+}
+
+.rv-input:focus-visible,
+.rv-select:focus-visible {
+  outline: none;
+  border-color: var(--rv-verde);
+  box-shadow: 0 0 0 3px rgba(60, 90, 50, 0.16);
+}
+
+.rv-input::placeholder { color: #8A8471; }
+
+/* La barra de búsqueda es una tarjeta con un input adentro, sin borde. */
+.rv-buscador {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--rv-surface);
+  border-radius: var(--rv-r-md);
+  box-shadow: var(--rv-sombra);
+}
+
+.rv-buscador input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--rv-texto);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+input[type='checkbox'] { accent-color: var(--rv-verde); }
+
+/* ==========================================================================
+   Tablas
+   ========================================================================== */
+
+.rv-tabla { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+.rv-tabla th,
+.rv-tabla td {
+  padding: 12px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--rv-tint-borde);
+  vertical-align: middle;
+}
+
+.rv-tabla thead th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--rv-texto-4);
+}
+
+/* ==========================================================================
+   Diálogo
+   ========================================================================== */
+
+.rv-capa {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(22, 30, 18, 0.55);
+}
+
+.rv-dialogo {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 26px;
+  background: var(--rv-surface);
+  border-radius: var(--rv-r-lg);
+  box-shadow: 0 24px 60px rgba(22, 30, 18, 0.3);
+}
+
+/* ==========================================================================
+   Avisos
+   ========================================================================== */
+
+.rv-nota {
+  padding: 12px 14px;
+  border-radius: var(--rv-r-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.rv-nota--error { color: var(--rv-bordo); background: #FBEDED; border: 1px solid #E3C4C4; font-weight: 600; }
+.rv-nota--ok { color: var(--rv-verde-osc); background: var(--rv-tint); border: 1px solid var(--rv-tint-borde); }
+.rv-nota--info { color: var(--rv-texto-3); background: var(--rv-bg); border-left: 3px solid var(--rv-lima); }

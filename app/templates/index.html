@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block contenido %}
+<form class="rv-card tarjeta" method="post" action="/generar" enctype="multipart/form-data">
+  <h2 class="tarjeta__titulo">Números de CTG a informar</h2>
+  <p class="tarjeta__ayuda">
+    Pegá un CTG por línea, o subí el archivo que genera <code>ctg_soja.py</code>.
+    De ese archivo se toman también la fecha del movimiento y el peso que entró
+    a stock, que son de la balanza y no están en ARCA. Todo lo demás
+    —intervinientes, pesos de la carta, grano, campaña— lo trae ARCA.
+  </p>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+  <div class="rv-campo">
+    <label class="rv-label" for="ctgs">CTG (uno por línea, hasta {{ max_ctg }})</label>
+    <textarea class="rv-input" id="ctgs" name="ctgs" rows="10" spellcheck="false"
+              placeholder="10235396826&#10;10235401125">{{ ctgs or '' }}</textarea>
+  </div>
+
+  <div class="rv-campo">
+    <label class="rv-label" for="archivo">…o el CSV del script</label>
+    <input class="rv-input" type="file" id="archivo" name="archivo" accept=".csv,.txt">
+  </div>
+
+  <div class="acciones">
+    <button class="rv-btn rv-btn--primario" type="submit">Consultar ARCA y generar el XLSX</button>
+    <span class="acciones__nota">Tarda alrededor de un segundo por CTG.</span>
+  </div>
+</form>
+
+<div class="rv-card tarjeta">
+  <h2 class="tarjeta__titulo">Cómo sale la lista de CTG</h2>
+  <p class="tarjeta__ayuda">
+    En el servidor donde está Oracle, <code>scripts/ctg_soja.py</code> consulta
+    los ingresos a planta de soja (especie 38) de un rango de fechas y deja un
+    CSV con los CTG. Ese archivo es el que se sube acá.
+  </p>
+  <pre class="codigo">python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07</pre>
+</div>
+{% endblock %}

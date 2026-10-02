@@ -1,0 +1,18 @@
+services:
+  informarcpe:
+    build: .
+    image: rivara/informarcpe:latest
+    container_name: rivara-informarcpe
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # 1003 portal, 1004 Horas Extra, 1006 Finanzas Axion.
+      - "1007:8000"
+    volumes:
+      # Certificados digitales de ARCA, solo lectura: la app nunca los escribe.
+      - ./certs:/certs:ro
+      # Tickets de acceso, respuestas de ARCA y los XLSX generados.
+      - informarcpe-data:/data
+
+volumes:
+  informarcpe-data:
