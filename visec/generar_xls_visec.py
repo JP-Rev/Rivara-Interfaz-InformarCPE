@@ -1,325 +1,344 @@
 #!/usr/bin/env python3
 """Genera el XLSX de "Registración de Cartas de Porte" de Visec a partir de
-la tabla INGRESOS_PLANTA.
+SYSADMIN_ELN.INGRESOS_PLANTAS (Oracle, vía SQL*Plus, igual que cpe_bolsatech.py).
 
-Dos orígenes de datos:
-  --xls ARCHIVO     un extracto de INGRESOS_PLANTA exportado a Excel (para probar)
-  --desde/--hasta   consulta directa a la base (DB_URL en .env)
+Uso:
+  python generar_xls_visec.py --desde 2026-10-01
+  python generar_xls_visec.py --desde 2026-10-01 --hasta 2026-10-07
+  python generar_xls_visec.py --desde 2026-10-01 --planta 2 --tipos E,C
 
-Ejemplos:
-  python generar_xls_visec.py --xls 28.xls
-  python generar_xls_visec.py --desde 2026-10-01 --hasta 2026-10-01
-  python generar_xls_visec.py --desde 2026-10-01 --hasta 2026-10-07 --planta 2
-
-El resultado es una copia de plantilla_visec.xlsx con las filas cargadas, y un
-archivo *_avisos.txt con los datos que faltaron y hay que revisar a mano.
+Salida (carpeta salida/):
+  visec_cpe_AAAAMMDD_AAAAMMDD.xlsx         -> para subir a Visec
+  visec_cpe_AAAAMMDD_AAAAMMDD_avisos.txt   -> datos que faltaron, por CTG
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import re
+import subprocess
 import sys
+import tempfile
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
-import pandas as pd
+from dotenv import load_dotenv
 from openpyxl import load_workbook
 
-BASE = Path(__file__).resolve().parent
-PLANTILLA = BASE / "plantilla_visec.xlsx"
-QUERY = BASE / "query_ingresos.sql"
+BASE_DIR = Path(__file__).resolve().parent
+PLANTILLA = BASE_DIR / "plantilla_visec.xlsx"
+SALIDA_DIR = BASE_DIR / "salida"
 
 
 # ---------------------------------------------------------------------------
-# Configuración (se lee de .env / variables de entorno)
+# Configuración
 # ---------------------------------------------------------------------------
-
-def cargar_env(ruta: Path) -> None:
-    """Carga un .env simple (CLAVE=valor) sin pisar variables ya definidas."""
-    if not ruta.exists():
-        return
-    for linea in ruta.read_text(encoding="utf-8").splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
-            continue
-        clave, valor = linea.split("=", 1)
-        os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
-
 
 def mapa_env(nombre: str) -> dict[str, str]:
     """Lee un mapa 'a:b,c:d' desde una variable de entorno."""
-    crudo = os.environ.get(nombre, "")
     salida = {}
-    for par in crudo.split(","):
+    for par in os.getenv(nombre, "").split(","):
         if ":" in par:
-            k, v = par.split(":", 1)
-            salida[k.strip()] = v.strip()
+            clave, valor = par.split(":", 1)
+            salida[clave.strip()] = valor.strip()
     return salida
 
 
-# ---------------------------------------------------------------------------
-# Lectura de datos
-# ---------------------------------------------------------------------------
-
-def leer_xls(ruta: Path) -> pd.DataFrame:
-    return pd.read_excel(ruta, dtype=str)
-
-
-def leer_db(desde: date, hasta: date, planta: str | None) -> pd.DataFrame:
-    from sqlalchemy import create_engine, text
-
-    url = os.environ.get("DB_URL")
-    if not url:
-        sys.exit("Falta DB_URL en .env (ver .env.example).")
-    sql = QUERY.read_text(encoding="utf-8")
-    params = {
-        "desde": datetime.combine(desde, datetime.min.time()),
-        # hasta inclusive: se consulta hasta el inicio del día siguiente
-        "hasta": datetime.combine(hasta + timedelta(days=1), datetime.min.time()),
+def obtener_configuracion() -> dict:
+    load_dotenv(BASE_DIR / ".env")
+    config = {
+        "sqlplus_exe": os.getenv("SQLPLUS_EXE", r"D:\oracle\product\11.2.0\client_1\bin\sqlplus.exe").strip(),
+        "oracle_usuario": os.getenv("ORACLE_USUARIO", "").strip(),
+        "oracle_password": os.getenv("ORACLE_PASSWORD", "").strip(),
+        "oracle_alias": os.getenv("ORACLE_ALIAS", "BASE").strip(),
+        # numero_planta_oncca:cuit  (planta sin mapear -> CUIT_EMPRESA)
+        "cuit_empresa": os.getenv("CUIT_EMPRESA", "30601191640").strip(),
+        "cuit_por_planta": mapa_env("MAPA_PLANTA_CUIT"),
+        "especies": mapa_env("MAPA_ESPECIE_PRODUCTO"),
+        "tipo_movimiento": mapa_env("MAPA_TIPO_MOVIMIENTO"),
+        "tipos_ingreso": os.getenv("TIPOS_INGRESO", "").strip(),
+        "formato_fecha_hora": os.getenv("FORMATO_FECHA_HORA", "%d/%m/%Y %H:%M"),
+        "formato_fecha": os.getenv("FORMATO_FECHA", "%d/%m/%Y"),
     }
-    engine = create_engine(url)
-    with engine.connect() as conn:
-        df = pd.read_sql(text(sql), conn, params=params)
-    df.columns = [c.upper() for c in df.columns]
-    df = df.astype(str)  # v() descarta 'None'/'nan'
-    if planta:
-        df = df[df["IPL_PLANTA"].astype(str).str.strip() == planta]
-    return df
+    if not Path(config["sqlplus_exe"]).exists():
+        sys.exit(f"No se encontró SQL*Plus en: {config['sqlplus_exe']}")
+    if not config["oracle_usuario"] or not config["oracle_alias"]:
+        sys.exit("Falta ORACLE_USUARIO u ORACLE_ALIAS en .env")
+    if len(cuit(config["cuit_empresa"])) != 11:
+        sys.exit("CUIT_EMPRESA inválido en .env")
+    return config
 
 
 # ---------------------------------------------------------------------------
-# Helpers de formato
+# Consulta Oracle
 # ---------------------------------------------------------------------------
 
-def v(fila: pd.Series, col: str) -> str:
-    """Valor limpio de una columna ('' si no existe o es nulo)."""
-    if col not in fila.index:
-        return ""
-    x = fila[col]
-    if x is None or (isinstance(x, float) and pd.isna(x)):
-        return ""
-    s = str(x).strip()
-    return "" if s.lower() in ("nan", "nat", "none") else s
+# Columnas que devuelve la consulta, en orden. Para sumar un dato nuevo
+# (ej. CUIT del corredor) agregalo acá y en SELECT_COLUMNAS con el mismo orden.
+COLUMNAS = [
+    "punto_ingreso", "numero_ingreso", "tipo_ingreso", "especie", "cosecha",
+    "fecha_hora", "fecha_hora_carga", "fecha_hora_conf_arribo",
+    "sucursal_cpe", "numero_cpe", "ctg",
+    "cuit_productor", "cyo1_cuit", "cyo2_cuit", "corredor", "renspa",
+    "planta", "numero_planta_oncca",
+    "peso_neto_productor", "peso_neto",
+]
+
+SELECT_COLUMNAS = """
+    NVL(TRIM(TO_CHAR(I.IPL_PUNTO_INGRESO)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_NUMERO_INGRESO)), '') || '|' ||
+    NVL(TRIM(I.IPL_TIPO_INGRESO), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_ESPECIE)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_COSECHA)), '') || '|' ||
+    TO_CHAR(I.IPL_FECHA_HORA, 'YYYY-MM-DD HH24:MI:SS') || '|' ||
+    TO_CHAR(I.IPL_FECHA_HORA_CARGA, 'YYYY-MM-DD HH24:MI:SS') || '|' ||
+    TO_CHAR(I.IPL_FECHA_HORA_CONF_ARRIBO, 'YYYY-MM-DD HH24:MI:SS') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_SUCURSAL_INTERNA_CPE)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_NUMERO_INTERNO_CPE)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_CTG)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_CUIT_PRODUCTOR)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_CYO1_CUIT)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_CYO2_CUIT)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_CORREDOR)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_NUMERO_RENSPA)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_PLANTA)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(P.PLA_NUMERO_ONCCA)), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_PESO_NETO_PRODUCTOR, 'FM999999999999990D999', 'NLS_NUMERIC_CHARACTERS=''.,''')), '') || '|' ||
+    NVL(TRIM(TO_CHAR(I.IPL_PESO_NETO, 'FM999999999999990D999', 'NLS_NUMERIC_CHARACTERS=''.,''')), '')
+"""
 
 
-def cuit(s: str) -> str:
-    """CUIT solo dígitos (11). Devuelve '' si no es válido o es 0."""
-    d = re.sub(r"\D", "", s or "")
-    return d if len(d) == 11 else ""
+def generar_sql(desde: datetime, hasta: datetime, planta: str | None, tipos: list[str]) -> str:
+    filtro_planta = f"\n  AND I.IPL_PLANTA = {int(planta)}" if planta else ""
+    filtro_tipos = ""
+    if tipos:
+        lista = ", ".join(f"'{t}'" for t in tipos)
+        filtro_tipos = f"\n  AND I.IPL_TIPO_INGRESO IN ({lista})"
+    return f"""
+WHENEVER OSERROR EXIT 10
+WHENEVER SQLERROR EXIT SQL.SQLCODE
+SET ECHO OFF
+SET FEEDBACK OFF
+SET VERIFY OFF
+SET HEADING OFF
+SET PAGESIZE 0
+SET LINESIZE 32767
+SET TRIMSPOOL ON
+SET TERMOUT ON
+SET SQLBLANKLINES ON
+SET DEFINE OFF
+
+SELECT {SELECT_COLUMNAS}
+FROM SYSADMIN_ELN.INGRESOS_PLANTAS I
+LEFT JOIN SYSADMIN_ELN.PLANTAS P ON P.PLA_PLANTA = I.IPL_PLANTA
+WHERE I.IPL_FECHA_HORA >= TO_DATE('{desde:%Y-%m-%d %H:%M:%S}', 'YYYY-MM-DD HH24:MI:SS')
+  AND I.IPL_FECHA_HORA <  TO_DATE('{hasta:%Y-%m-%d %H:%M:%S}', 'YYYY-MM-DD HH24:MI:SS')
+  AND I.IPL_CTG IS NOT NULL{filtro_planta}{filtro_tipos}
+ORDER BY I.IPL_FECHA_HORA, I.IPL_PUNTO_INGRESO, I.IPL_NUMERO_INGRESO;
+EXIT 0
+"""
 
 
-def entero(s: str) -> str:
-    """'32840.0' -> '32840'."""
-    if not s:
+def ejecutar_consulta(config: dict, sql: str) -> list[dict[str, str]]:
+    archivo_sql: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False,
+                                         encoding="latin-1", newline="\n") as archivo:
+            archivo.write(sql)
+            archivo_sql = Path(archivo.name)
+        comandos = (f'CONNECT {config["oracle_usuario"]}/"{config["oracle_password"]}"'
+                    f'@{config["oracle_alias"]}\n@{archivo_sql}\n')
+        resultado = subprocess.run(
+            [config["sqlplus_exe"], "-L", "-S", "/nolog"], input=comandos,
+            capture_output=True, text=True, encoding="latin-1", errors="replace", timeout=180,
+        )
+        salida, error = resultado.stdout or "", resultado.stderr or ""
+        completa = f"{salida}\n{error}".upper()
+        if resultado.returncode != 0 or "ORA-" in completa or "SP2-" in completa:
+            sys.exit(f"Error de SQL*Plus ({resultado.returncode}):\n{salida}\n{error}")
+        registros = []
+        for linea in salida.splitlines():
+            linea = linea.strip()
+            if "|" not in linea:
+                continue
+            valores = [v.strip() for v in linea.split("|")]
+            if len(valores) != len(COLUMNAS):
+                print(f"ADVERTENCIA: fila ignorada ({len(valores)} columnas, esperadas {len(COLUMNAS)})")
+                continue
+            registros.append(dict(zip(COLUMNAS, valores)))
+        return registros
+    finally:
+        if archivo_sql and archivo_sql.exists():
+            archivo_sql.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Formatos
+# ---------------------------------------------------------------------------
+
+def cuit(valor: str) -> str:
+    """CUIT solo dígitos; '' si no tiene 11 dígitos (ej. '0')."""
+    limpio = "".join(c for c in (valor or "") if c.isdigit())
+    return limpio if len(limpio) == 11 else ""
+
+
+def kilos(valor: str) -> str:
+    if not valor:
         return ""
     try:
-        return str(int(round(float(s.replace(",", ".")))))
+        numero = Decimal(valor.replace(",", "."))
+    except InvalidOperation:
+        return ""
+    return str(int(numero.quantize(Decimal("1"), rounding=ROUND_HALF_UP))) if numero > 0 else ""
+
+
+def formatear_fecha(valor: str, formato: str) -> str:
+    try:
+        return datetime.strptime(valor, "%Y-%m-%d %H:%M:%S").strftime(formato)
     except ValueError:
         return ""
 
 
-def fecha_hora(s: str) -> str:
-    if not s:
-        return ""
-    try:
-        return pd.to_datetime(s).strftime(os.environ.get("FORMATO_FECHA_HORA", "%d/%m/%Y %H:%M"))
-    except (ValueError, TypeError):
-        return ""
-
-
-def fecha(s: str) -> str:
-    if not s:
-        return ""
-    try:
-        return pd.to_datetime(s).strftime(os.environ.get("FORMATO_FECHA", "%d/%m/%Y"))
-    except (ValueError, TypeError):
-        return ""
-
-
 # ---------------------------------------------------------------------------
-# Mapeo INGRESOS_PLANTA -> columnas Visec
+# Mapeo a columnas Visec
 # ---------------------------------------------------------------------------
 
 COLUMNAS_VISEC = [
-    "Fecha y Hora Movimiento",                # A
-    "Fecha CPE",                              # B
-    "Número CPE",                             # C
-    "Número CTG",                             # D
-    "CUIT Titular",                           # E
-    "Número RUCA Origen",                     # F
-    "CUIT Remitente Comercial Productor",     # G
-    "CUIT Rte Comercial Venta Primaria",      # H
-    "CUIT Rte Comercial Venta Secundaria",    # I
-    "CUIT Rte Comercial Venta Secundaria 2",  # J
-    "CUIT Corredor Venta Primaria",           # K
-    "CUIT Corredor Venta Secundaria",         # L
-    "CUIT Destinatario",                      # M
-    "CUIT Destino",                           # N
-    "Número RUCA Destino",                    # O
-    "Código Producto",                        # P
-    "Campaña",                                # Q
-    "Peso Neto Carga (Kg)",                   # R
-    "Número RENSPA",                          # S
-    "Número CTG Asignado",                    # T
-    "Peso Neto Carga (Kg) por UP",            # U
-    "Peso Neto Descarga (Kg) por UP",         # V
-    "Peso Ingreso Stock (Kg)",                # W
-    "Último Almacenamiento",                  # X
-    "Tipo Movimiento",                        # Y
+    "Fecha y Hora Movimiento", "Fecha CPE", "Número CPE", "Número CTG",
+    "CUIT Titular", "Número RUCA Origen", "CUIT Remitente Comercial Productor",
+    "CUIT Rte Comercial Venta Primaria", "CUIT Rte Comercial Venta Secundaria",
+    "CUIT Rte Comercial Venta Secundaria 2", "CUIT Corredor Venta Primaria",
+    "CUIT Corredor Venta Secundaria", "CUIT Destinatario", "CUIT Destino",
+    "Número RUCA Destino", "Código Producto", "Campaña", "Peso Neto Carga (Kg)",
+    "Número RENSPA", "Número CTG Asignado", "Peso Neto Carga (Kg) por UP",
+    "Peso Neto Descarga (Kg) por UP", "Peso Ingreso Stock (Kg)",
+    "Último Almacenamiento", "Tipo Movimiento",
 ]
 
 
-def mapear(fila: pd.Series, avisos: list[str]) -> dict[str, str]:
-    cuit_rivara = cuit(os.environ.get("CUIT_EMPRESA", ""))
-    especies = mapa_env("MAPA_ESPECIE_PRODUCTO")
-    ruca_planta = mapa_env("MAPA_PLANTA_RUCA")
-    tipo_mov = mapa_env("MAPA_TIPO_MOVIMIENTO")
-
-    ctg = v(fila, "IPL_CTG") or v(fila, "IPL_NUMERO_COMP_EXTERNO")
-    ref = f"CTG {ctg or '?'} (ingreso {v(fila, 'IPL_PUNTO_INGRESO')}-{v(fila, 'IPL_NUMERO_INGRESO')})"
+def mapear(r: dict[str, str], config: dict, avisos: list[str]) -> dict[str, str]:
+    ref = f"CTG {r['ctg']} (ingreso {r['punto_ingreso']}-{r['numero_ingreso']})"
 
     def falta(campo: str) -> None:
         avisos.append(f"{ref}: falta {campo}")
 
-    # Número CPE = sucursal-número interno de la CPE
-    suc, nro = entero(v(fila, "IPL_SUCURSAL_INTERNA_CPE")), entero(v(fila, "IPL_NUMERO_INTERNO_CPE"))
-    numero_cpe = f"{int(suc):05d}-{int(nro):08d}" if suc and nro else ""
+    planta_oncca = r["numero_planta_oncca"]
+    cuit_destino = cuit(config["cuit_por_planta"].get(planta_oncca, "")) or cuit(config["cuit_empresa"])
 
-    # Titular: el productor; en transferencias propias (sin productor) es la empresa
-    titular = cuit(v(fila, "IPL_CUIT_PRODUCTOR")) or (cuit_rivara if v(fila, "IPL_TIPO_INGRESO") == "T" else "")
+    # Mismo formato que cpe_bolsatech.py: sucursal + número interno a 8 dígitos
+    numero_cpe = (r["sucursal_cpe"] + r["numero_cpe"].zfill(8)) if r["sucursal_cpe"] and r["numero_cpe"] else ""
 
-    especie = v(fila, "IPL_ESPECIE")
-    producto = especies.get(especie, "")
-    if not producto:
-        falta(f"Código Producto (especie '{especie}' sin mapear en MAPA_ESPECIE_PRODUCTO)")
+    # Titular: el productor; en transferencias propias (sin productor) la planta destino
+    titular = cuit(r["cuit_productor"]) or (cuit_destino if r["tipo_ingreso"] == "T" else "")
 
-    planta = entero(v(fila, "IPL_PLANTA"))
-    tipo = v(fila, "IPL_TIPO_INGRESO")
-
-    r = {
-        "Fecha y Hora Movimiento": fecha_hora(v(fila, "IPL_FECHA_HORA_CONF_ARRIBO") or v(fila, "IPL_FECHA_HORA")),
-        "Fecha CPE": fecha(v(fila, "IPL_FECHA_HORA_CARGA") or v(fila, "IPL_FECHA_HORA")),
+    fila = {
+        "Fecha y Hora Movimiento": formatear_fecha(r["fecha_hora_conf_arribo"] or r["fecha_hora"], config["formato_fecha_hora"]),
+        "Fecha CPE": formatear_fecha(r["fecha_hora_carga"] or r["fecha_hora"], config["formato_fecha"]),
         "Número CPE": numero_cpe,
-        "Número CTG": ctg,
+        "Número CTG": r["ctg"],
         "CUIT Titular": titular,
-        "Número RUCA Origen": v(fila, "RUCA_ORIGEN"),
-        "CUIT Remitente Comercial Productor": cuit(v(fila, "CUIT_REMITENTE_PRODUCTOR")),
-        "CUIT Rte Comercial Venta Primaria": cuit(v(fila, "IPL_CYO1_CUIT")),
-        "CUIT Rte Comercial Venta Secundaria": cuit(v(fila, "IPL_CYO2_CUIT")),
+        "Número RUCA Origen": "",
+        "CUIT Remitente Comercial Productor": "",
+        "CUIT Rte Comercial Venta Primaria": cuit(r["cyo1_cuit"]),
+        "CUIT Rte Comercial Venta Secundaria": cuit(r["cyo2_cuit"]),
         "CUIT Rte Comercial Venta Secundaria 2": "",
-        "CUIT Corredor Venta Primaria": cuit(v(fila, "CUIT_CORREDOR")),
+        "CUIT Corredor Venta Primaria": "",
         "CUIT Corredor Venta Secundaria": "",
-        "CUIT Destinatario": cuit_rivara,
-        "CUIT Destino": cuit_rivara,
-        "Número RUCA Destino": ruca_planta.get(planta, ""),
-        "Código Producto": producto,
-        "Campaña": v(fila, "IPL_COSECHA"),
-        "Peso Neto Carga (Kg)": entero(v(fila, "IPL_PESO_NETO_PRODUCTOR")),
-        "Número RENSPA": v(fila, "IPL_NUMERO_RENSPA"),
+        "CUIT Destinatario": cuit_destino,
+        "CUIT Destino": cuit_destino,
+        "Número RUCA Destino": planta_oncca,
+        "Código Producto": config["especies"].get(r["especie"], ""),
+        "Campaña": r["cosecha"],
+        "Peso Neto Carga (Kg)": kilos(r["peso_neto_productor"]),
+        "Número RENSPA": r["renspa"],
         "Número CTG Asignado": "",
         "Peso Neto Carga (Kg) por UP": "",
         "Peso Neto Descarga (Kg) por UP": "",
-        "Peso Ingreso Stock (Kg)": entero(v(fila, "IPL_PESO_NETO")),
+        "Peso Ingreso Stock (Kg)": kilos(r["peso_neto"]),
         "Último Almacenamiento": "",
-        "Tipo Movimiento": tipo_mov.get(tipo, ""),
+        "Tipo Movimiento": config["tipo_movimiento"].get(r["tipo_ingreso"], ""),
     }
 
-    if not r["Número CPE"]:
+    if not fila["Número CPE"]:
         falta("Número CPE (IPL_SUCURSAL_INTERNA_CPE / IPL_NUMERO_INTERNO_CPE vacíos)")
-    if not r["CUIT Titular"]:
+    if not fila["CUIT Titular"]:
         falta("CUIT Titular")
-    if not r["Peso Neto Carga (Kg)"]:
+    if not fila["Número RUCA Destino"]:
+        falta(f"RUCA Destino (PLA_NUMERO_ONCCA vacío para planta {r['planta']})")
+    if not fila["Código Producto"]:
+        falta(f"Código Producto (especie '{r['especie']}' sin mapear en MAPA_ESPECIE_PRODUCTO)")
+    if not fila["Peso Neto Carga (Kg)"]:
         falta("Peso Neto Carga (IPL_PESO_NETO_PRODUCTOR vacío)")
-    if not r["Número RUCA Destino"]:
-        falta(f"RUCA Destino (planta '{planta}' sin mapear en MAPA_PLANTA_RUCA)")
-    if v(fila, "IPL_CORREDOR") and not r["CUIT Corredor Venta Primaria"]:
-        falta(f"CUIT Corredor (código corredor {v(fila, 'IPL_CORREDOR')}, agregar JOIN en query)")
-    if not r["Tipo Movimiento"]:
-        falta(f"Tipo Movimiento (tipo ingreso '{tipo}' sin mapear en MAPA_TIPO_MOVIMIENTO)")
-    return r
+    if r["corredor"] and not fila["CUIT Corredor Venta Primaria"]:
+        falta(f"CUIT Corredor (código corredor {r['corredor']})")
+    if not fila["Tipo Movimiento"]:
+        falta(f"Tipo Movimiento (tipo ingreso '{r['tipo_ingreso']}' sin mapear en MAPA_TIPO_MOVIMIENTO)")
+    return fila
 
 
 # ---------------------------------------------------------------------------
 # Escritura sobre la plantilla
 # ---------------------------------------------------------------------------
 
-def escribir(filas: list[dict[str, str]], destino: Path) -> None:
+def escribir_xlsx(filas: list[dict[str, str]], destino: Path) -> None:
     wb = load_workbook(PLANTILLA)
     ws = wb["Cartas de Porte"]
-
-    # Verifica que la plantilla no haya cambiado de columnas
     encabezados = [ws.cell(1, i + 1).value for i in range(len(COLUMNAS_VISEC))]
     if encabezados != COLUMNAS_VISEC:
         sys.exit(f"La plantilla no tiene las columnas esperadas:\n{encabezados}")
-
-    # Limpia filas previas (la plantilla viene vacía, pero por las dudas)
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
-
     formatos = [ws.cell(1, i + 1).number_format for i in range(len(COLUMNAS_VISEC))]
     for n, fila in enumerate(filas, start=2):
-        for i, col in enumerate(COLUMNAS_VISEC):
-            valor = fila[col]
-            celda = ws.cell(n, i + 1, valor if valor != "" else None)
-            celda.number_format = formatos[i]  # '@' = texto, igual que la plantilla
+        for i, columna in enumerate(COLUMNAS_VISEC):
+            celda = ws.cell(n, i + 1, fila[columna] or None)
+            celda.number_format = formatos[i]  # '@' = texto, como la plantilla
     wb.save(destino)
 
 
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    cargar_env(BASE / ".env")
-    if not cuit(os.environ.get("CUIT_EMPRESA", "")):
-        sys.exit("Falta CUIT_EMPRESA (11 dígitos) en .env (ver .env.example).")
+def main() -> int:
+    config = obtener_configuracion()
 
     ap = argparse.ArgumentParser(description="Genera el XLSX de CPE para Visec")
-    ap.add_argument("--xls", type=Path, help="Extracto de INGRESOS_PLANTA (prueba sin DB)")
-    ap.add_argument("--desde", type=date.fromisoformat, help="Fecha desde (AAAA-MM-DD)")
-    ap.add_argument("--hasta", type=date.fromisoformat, help="Fecha hasta inclusive (AAAA-MM-DD)")
-    ap.add_argument("--planta", help="Filtrar por IPL_PLANTA")
-    ap.add_argument("--tipos", default=os.environ.get("TIPOS_INGRESO", ""),
-                    help="Tipos de ingreso a incluir, ej: T,E,C (vacío = todos)")
-    ap.add_argument("-o", "--salida", type=Path, help="Archivo de salida .xlsx")
+    ap.add_argument("--desde", type=date.fromisoformat, required=True, help="AAAA-MM-DD")
+    ap.add_argument("--hasta", type=date.fromisoformat, help="AAAA-MM-DD, inclusive (default = desde)")
+    ap.add_argument("--planta", help="Filtrar por IPL_PLANTA (código interno)")
+    ap.add_argument("--tipos", default=config["tipos_ingreso"], help="Tipos de ingreso, ej: E,C,T (vacío = todos)")
+    ap.add_argument("-o", "--salida", type=Path, help="Archivo .xlsx de salida")
     args = ap.parse_args()
 
-    if args.xls:
-        df = leer_xls(args.xls)
-        if args.planta:
-            df = df[df["IPL_PLANTA"].astype(str).str.strip() == args.planta]
-        sufijo = args.xls.stem
-    elif args.desde:
-        hasta = args.hasta or args.desde
-        df = leer_db(args.desde, hasta, args.planta)
-        sufijo = f"{args.desde:%Y%m%d}_{hasta:%Y%m%d}"
-    else:
-        ap.error("Indicá --xls ARCHIVO o --desde FECHA")
+    hasta = args.hasta or args.desde
+    if hasta < args.desde:
+        ap.error("--hasta no puede ser anterior a --desde")
+    tipos = [t.strip().upper() for t in args.tipos.split(",") if t.strip().isalpha()]
 
-    if args.tipos:
-        tipos = {t.strip() for t in args.tipos.split(",") if t.strip()}
-        df = df[df["IPL_TIPO_INGRESO"].astype(str).str.strip().isin(tipos)]
-
-    if df.empty:
-        sys.exit("No hay ingresos para los filtros indicados.")
+    sql = generar_sql(
+        datetime.combine(args.desde, datetime.min.time()),
+        datetime.combine(hasta + timedelta(days=1), datetime.min.time()),
+        args.planta, tipos,
+    )
+    registros = ejecutar_consulta(config, sql)
+    if not registros:
+        print("No hay ingresos con CTG para los filtros indicados.")
+        return 0
 
     avisos: list[str] = []
-    filas = [mapear(fila, avisos) for _, fila in df.iterrows()]
+    filas = [mapear(r, config, avisos) for r in registros]
 
-    salida = args.salida or BASE / "salida" / f"visec_cpe_{sufijo}.xlsx"
+    salida = args.salida or SALIDA_DIR / f"visec_cpe_{args.desde:%Y%m%d}_{hasta:%Y%m%d}.xlsx"
     salida.parent.mkdir(parents=True, exist_ok=True)
-    escribir(filas, salida)
-
+    escribir_xlsx(filas, salida)
     print(f"OK: {len(filas)} filas -> {salida}")
+
     if avisos:
         ruta_avisos = salida.with_name(salida.stem + "_avisos.txt")
         ruta_avisos.write_text("\n".join(avisos) + "\n", encoding="utf-8")
         print(f"ATENCIÓN: {len(avisos)} avisos -> {ruta_avisos}")
-        for a in avisos[:10]:
-            print("  -", a)
-        if len(avisos) > 10:
-            print(f"  ... y {len(avisos) - 10} más")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

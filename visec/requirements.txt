@@ -1,5 +1,2 @@
-pandas>=2.2
+python-dotenv>=1.0
 openpyxl>=3.1
-xlrd>=2.0          # para leer extractos .xls (--xls)
-SQLAlchemy>=2.0    # para consultar la base (--desde/--hasta)
-sqlalchemy-firebird>=2.1  # driver Firebird para SQLAlchemy (incluye firebird-driver)

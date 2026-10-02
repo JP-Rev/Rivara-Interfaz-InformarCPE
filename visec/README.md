@@ -1,26 +1,29 @@
 # Generador XLSX Visec (Registración de Cartas de Porte)
 
-Lee `INGRESOS_PLANTA` y completa `plantilla_visec.xlsx` (la plantilla que pide Visec).
+Consulta `SYSADMIN_ELN.INGRESOS_PLANTAS` (Oracle, vía SQL*Plus, igual que
+`cpe_bolsatech.py`) y completa `plantilla_visec.xlsx`, la plantilla de Visec.
+
+## Instalación (en el servidor donde corre SQL*Plus)
+
+```bat
+cd visec
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+```
+
+Completar `.env` (mismas credenciales Oracle que Bolsatech).
 
 ## Uso
 
-```bash
-cd visec
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # completar CUIT_EMPRESA, mapeos y DB_URL
-
-# Prueba con un extracto exportado a Excel (no necesita DB)
-python generar_xls_visec.py --xls /ruta/28.xls
-
-# Desde la base, por rango de fechas (hasta inclusive)
-python generar_xls_visec.py --desde 2026-10-01 --hasta 2026-10-01
+```bat
+python generar_xls_visec.py --desde 2026-10-01
+python generar_xls_visec.py --desde 2026-10-01 --hasta 2026-10-07 --tipos E,C
 ```
 
-Salida en `visec/salida/`: el `.xlsx` para subir a Visec y un `*_avisos.txt`
-con los datos que faltaron por fila.
+Salida en `visec\salida\`: el `.xlsx` para subir a Visec y un `*_avisos.txt`
+con los datos que faltaron por CTG. Revisar los avisos antes de subir.
 
-La consulta está en `query_ingresos.sql`. Los datos que no están en
-`INGRESOS_PLANTA` (RUCA origen, CUIT corredor, CUIT remitente productor) se
-agregan con JOIN en esa consulta usando los alias `RUCA_ORIGEN`,
-`CUIT_CORREDOR` y `CUIT_REMITENTE_PRODUCTOR`; el script los toma solos.
+`buscar_tablas.sql` lista en qué tablas del esquema están los CUIT/RUCA que
+todavía no completa el script.
