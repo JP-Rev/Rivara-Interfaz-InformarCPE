@@ -5,7 +5,7 @@ pide Visec. Se cargan los números de CTG, la app consulta cada CPE en el web
 service de ARCA (`wscpe`) y completa la plantilla de Visec con lo que devuelve
 ARCA: intervinientes, plantas, grano, campaña y pesos.
 
-Puerto **1007** del host `admin` (1003 es el portal, 1004 Horas Extra, 1006
+Puerto **1009** del host `admin` (1003 es el portal, 1004 Horas Extra, 1006
 Finanzas Axion).
 
 ## Por qué consultar ARCA y no la base
@@ -96,7 +96,7 @@ que no se comparte la carpeta ni se sube a ningún repositorio.
 
 Sigue el [contrato de despliegue](https://github.com/JP-Rev/Rivara-Infraestructura/blob/main/docs/contrato-despliegue-apps.md)
 de `Rivara-Infraestructura`: código en `/srv/informarcpe`, datos en
-`/storage/informarcpe`, puerto **1007** del host y **80** dentro del
+`/storage/informarcpe`, puerto **1009** del host y **80** dentro del
 contenedor, imagen `rivara-informarcpe:local`.
 
 No es ninguno de los dos moldes del §3: no es una SPA de nginx (molde A) ni
@@ -212,7 +212,7 @@ Verificar:
 
 ```bash
 docker compose ps                        # tiene que decir healthy
-curl -s http://localhost:1007/salud
+curl -s http://localhost:1009/salud
 ```
 
 `/salud` devuelve **200** con `"problemas": []` cuando está todo, y **503** con
@@ -233,9 +233,9 @@ En el portal, Administrar → agregar app:
 | nombre | Informar CPE a Visec |
 | descripción | Carta de porte electrónica para Visec |
 | icono | `camion` |
-| puerto | 1007 |
+| puerto | 1009 |
 
-Y agregar la fila del puerto 1007 en el §1 del contrato, en
+Y agregar la fila del puerto 1009 en el §1 del contrato, en
 `Rivara-Infraestructura`, como pide el checklist de la skill `rivara-app`.
 
 ### nginx
@@ -246,7 +246,7 @@ esto solo aplica cuando se ponga el nginx con TLS adelante (§11 del contrato):
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:1007;
+    proxy_pass http://127.0.0.1:1009;
     proxy_read_timeout 600s;
 }
 ```

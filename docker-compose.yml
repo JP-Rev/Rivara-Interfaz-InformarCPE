@@ -4,8 +4,10 @@ services:
     image: rivara-informarcpe:local
     container_name: informarcpe
     ports:
-      # 1007: el siguiente libre del §1 del contrato (1005 Insumos, 1006 Finanzas).
-      - "1007:80"
+      # 1009: el primer puerto libre. El §1 del contrato decia que de 1007 en
+      # adelante estaba libre, pero 1007 y 1008 ya estaban tomados por
+      # movimientosunidades y gestionagricola, que no figuraban en la tabla.
+      - "1009:80"
     env_file: .env
     volumes:
       # Bind mount al disco de datos, nunca un volumen con nombre: esos viven
