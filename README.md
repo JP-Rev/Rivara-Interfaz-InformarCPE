@@ -301,6 +301,30 @@ docker compose exec informarcpe ls /data/cache/respuestas
 docker compose exec informarcpe cat /data/cache/respuestas/cpe_10235396826_*.json
 ```
 
+## Si ARCA mueve el endpoint
+
+Pasó en 2026: el WSDL de producción que traen las bibliotecas
+(`serviciosjava.afip.gob.ar/wscpe/services/soap?wsdl`) empezó a dar 404 porque
+el servicio se mudó a `cpea-ws.arca.gob.ar`. Para no depender de una versión
+nueva de la app, las dos direcciones se pueden pisar desde el `.env`:
+
+```ini
+ARCA_URL_WSCPE=https://cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl
+ARCA_URL_WSAA=https://wsaa.afip.gov.ar/ws/services/LoginCms
+```
+
+Para buscar la que responde, desde el servidor:
+
+```bash
+for u in "https://cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl" \
+         "https://serviciosjava.afip.gob.ar/wscpe/services/soap?wsdl" ; do
+  echo "$(curl -sL -o /dev/null -w '%{http_code}' --max-time 15 "$u")  $u"
+done
+```
+
+El `?wsdl` importa: sin él la dirección es el endpoint SOAP y no el documento
+que la app necesita para saber cómo llamarlo. Si se olvida, la app lo agrega.
+
 ## Qué hace la app con los datos
 
 - **Solo consulta.** Usa `consultarCPEAutomotor` y nada más: no autoriza, no

@@ -22,7 +22,9 @@ URLS = {
     },
     "produccion": {
         "wsaa": "https://wsaa.afip.gov.ar/ws/services/LoginCms",
-        "wscpe": "https://serviciosjava.afip.gob.ar/wscpe/services/soap?wsdl",
+        # ARCA movio el servicio a un host propio en 2026. La direccion que
+        # traen las bibliotecas viejas (serviciosjava.afip.gob.ar) da 404.
+        "wscpe": "https://cpea-ws.arca.gob.ar/wscpe/services/soap?wsdl",
     },
 }
 
@@ -102,7 +104,12 @@ class Config:
 
     @property
     def url_wscpe(self) -> str:
-        return self.url_wscpe_override or URLS[self.entorno]["wscpe"]
+        url = self.url_wscpe_override or URLS[self.entorno]["wscpe"]
+        # zeep necesita el documento WSDL, no el endpoint SOAP. Es facil
+        # copiar la direccion sin "?wsdl" y el error que da despues no lo dice.
+        if "?" not in url and not url.endswith(".wsdl"):
+            url += "?wsdl"
+        return url
 
     @property
     def cuits(self) -> list[str]:
