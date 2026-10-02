@@ -90,6 +90,11 @@ class Config:
 
     # Sesión compartida con el portal (cookie rivara_he, JWT HS256)
     jwt_secret: str = os.getenv("JWT_SECRET", "").strip()
+    # El portal vive en el mismo host, en otro puerto. La URL se arma con el
+    # nombre con el que entro el navegador (§6 del contrato: nada de hosts
+    # hardcodeados), asi que funciona por IP y por nombre sin configurar nada.
+    # PORTAL_URL solo hace falta si el portal esta en otra maquina.
+    portal_puerto: int = int(os.getenv("PORTAL_PUERTO", "1003"))
     portal_url: str = os.getenv("PORTAL_URL", "").strip()
     auth_desactivada: bool = _bool("AUTH_DESACTIVADA", False)
 

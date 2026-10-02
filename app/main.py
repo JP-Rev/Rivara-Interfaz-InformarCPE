@@ -97,10 +97,23 @@ def usuario_de(request: Request) -> dict | None:
         return None
 
 
-def _sin_sesion() -> RedirectResponse | HTTPException:
-    """Al portal si está configurado; si no, un 401 sin inventar un login propio."""
+def url_portal(request: Request) -> str:
+    """La URL del portal, armada con el host por el que entró el navegador.
+
+    Hardcodearla rompe la mitad de los accesos: quien entra por IP no resuelve
+    `admin`, y quien entra por nombre no comparte la cookie con la IP.
+    """
     if config.portal_url:
-        return RedirectResponse(config.portal_url, status_code=303)
+        return config.portal_url
+    host = request.url.hostname
+    return f"{request.url.scheme}://{host}:{config.portal_puerto}/" if host else ""
+
+
+def _sin_sesion(request: Request) -> RedirectResponse | HTTPException:
+    """Al portal si se puede resolver; si no, un 401 sin inventar un login propio."""
+    destino = url_portal(request)
+    if destino:
+        return RedirectResponse(destino, status_code=303)
     return HTTPException(status_code=401, detail="Sesión no válida. Entrá desde el portal.")
 
 
@@ -189,7 +202,7 @@ def _contexto(request: Request, usuario: dict, **extra) -> dict:
         "es_produccion": config.entorno == "produccion",
         "problemas": config.validar(),
         "max_ctg": MAX_CTG,
-        "portal_url": config.portal_url,
+        "portal_url": url_portal(request),
         **extra,
     }
 
@@ -198,7 +211,7 @@ def _contexto(request: Request, usuario: dict, **extra) -> dict:
 def inicio(request: Request):
     usuario = usuario_de(request)
     if not usuario:
-        respuesta = _sin_sesion()
+        respuesta = _sin_sesion(request)
         if isinstance(respuesta, HTTPException):
             raise respuesta
         return respuesta
@@ -213,7 +226,7 @@ async def generar(
 ):
     usuario = usuario_de(request)
     if not usuario:
-        respuesta = _sin_sesion()
+        respuesta = _sin_sesion(request)
         if isinstance(respuesta, HTTPException):
             raise respuesta
         return respuesta
