@@ -100,10 +100,18 @@ El certificado y la clave privada van en `./certs` **y no se suben a GitHub**
 (`.gitignore` ya los excluye). El `docker-compose.yml` los monta en `/certs`
 de solo lectura.
 
+Si no sabés dónde están los archivos en este servidor:
+
+```bash
+sudo find /home /srv /opt /root -name '*.crt' -o -name '*.key' -o -name '*.p12' 2>/dev/null
+```
+
+Y después, **con la ruta real** en lugar de `ORIGEN`:
+
 ```bash
 mkdir -p certs
-cp /ruta/segura/rivara.crt certs/
-cp /ruta/segura/rivara.key certs/
+cp ORIGEN/rivara.crt certs/
+cp ORIGEN/rivara.key certs/
 chmod 600 certs/rivara.key
 ```
 
