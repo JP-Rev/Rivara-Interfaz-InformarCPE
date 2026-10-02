@@ -1,18 +1,32 @@
 services:
   informarcpe:
     build: .
-    image: rivara/informarcpe:latest
-    container_name: rivara-informarcpe
-    restart: unless-stopped
-    env_file: .env
+    image: rivara-informarcpe:local
+    container_name: informarcpe
     ports:
-      # 1003 portal, 1004 Horas Extra, 1006 Finanzas Axion.
-      - "1007:8000"
+      # 1007: el siguiente libre del §1 del contrato (1005 Insumos, 1006 Finanzas).
+      - "1007:80"
+    env_file: .env
     volumes:
-      # Certificados digitales de ARCA, solo lectura: la app nunca los escribe.
-      - ./certs:/certs:ro
-      # Tickets de acceso, respuestas de ARCA y los XLSX generados.
-      - informarcpe-data:/data
-
-volumes:
-  informarcpe-data:
+      # Bind mount al disco de datos, nunca un volumen con nombre: esos viven
+      # en /var/lib/docker, o sea en el disco raiz, y quedan fuera del backup
+      # (contrato §7). Guarda los certificados, los tickets de acceso, las
+      # respuestas de ARCA y los XLSX generados.
+      - /storage/informarcpe:/data
+      # Los certificados, de solo lectura: la app nunca los escribe.
+      - /storage/informarcpe/certs:/certs:ro
+    # uvicorn corre como UID 10001 y el contenedor escucha en el puerto 80.
+    # Sin esto, bind() falla con "Permission denied".
+    sysctls:
+      - net.ipv4.ip_unprivileged_port_start=0
+    restart: unless-stopped
+    healthcheck:
+      # 127.0.0.1 explicito, no localhost: con localhost se intenta ::1 primero
+      # y uvicorn escucha en IPv4, asi que el contenedor quedaria unhealthy para
+      # siempre. /salud devuelve 503 si falta configuracion o un certificado,
+      # asi que esto comprueba que la app pueda trabajar, no solo que responda.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/salud', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

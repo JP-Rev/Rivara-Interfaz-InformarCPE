@@ -94,11 +94,74 @@ que no se comparte la carpeta ni se sube a ningún repositorio.
 
 ## Paso 2 — la app, en el servidor Ubuntu
 
-### Certificados de ARCA
+Sigue el [contrato de despliegue](https://github.com/JP-Rev/Rivara-Infraestructura/blob/main/docs/contrato-despliegue-apps.md)
+de `Rivara-Infraestructura`: código en `/srv/informarcpe`, datos en
+`/storage/informarcpe`, puerto **1007** del host y **80** dentro del
+contenedor, imagen `rivara-informarcpe:local`.
 
-El certificado y la clave privada van en `./certs` **y no se suben a GitHub**
-(`.gitignore` ya los excluye). El `docker-compose.yml` los monta en `/certs`
-de solo lectura.
+No es ninguno de los dos moldes del §3: no es una SPA de nginx (molde A) ni
+Node con SQLite (molde B), sino Python con FastAPI, porque la app tiene que
+firmar el ticket de WSAA y hablar SOAP con ARCA. Lo que sí respeta es todo lo
+que el contrato pide del host: puerto, nombre de imagen, `/srv` para el código,
+bind mount a `/storage` y healthcheck con `127.0.0.1`.
+
+### Qué guarda en /storage, y qué se respalda
+
+No usa base de datos. En `/storage/informarcpe` quedan cuatro cosas:
+
+| Ruta en el host | Qué es | ¿Respaldar? |
+|---|---|---|
+| `/storage/informarcpe/certs/` | certificado y clave privada de ARCA | **sí, es lo único insustituible** |
+| `/storage/informarcpe/cache/respuestas/` | respuesta cruda de cada CPE consultada | sí: es el respaldo de lo que se informó |
+| `/storage/informarcpe/salida/` | los XLSX generados | no: se regeneran consultando otra vez |
+| `/storage/informarcpe/cache/ta_*.json` | tickets de acceso de WSAA, vencen en 12 h | no |
+
+Como no hay SQLite, **no aplica** el `sqlite3 ".backup"` de
+[`almacenamiento.md`](https://github.com/JP-Rev/Rivara-Infraestructura/blob/main/docs/almacenamiento.md):
+un `rsync` común alcanza. Son archivos que se escriben una vez y no se vuelven
+a tocar.
+
+```bash
+rsync -a --exclude 'salida/' --exclude 'cache/ta_*' /storage/informarcpe/ DESTINO/informarcpe/
+```
+
+El destino tiene que estar en otro disco, por lo mismo que dice
+`almacenamiento.md`: uno que falla se lleva los datos y la copia.
+
+**La clave privada queda dentro del backup.** Es necesario —sin ella hay que
+pedir un certificado nuevo a ARCA— pero significa que el backup hay que tratarlo
+con el mismo cuidado que la clave.
+
+Para que `/storage` no crezca sin control, la app borra sola los XLSX de más de
+30 días y las respuestas de más de 365 (`RETENCION_SALIDA_DIAS` y
+`RETENCION_RESPUESTAS_DIAS` del `.env`; `0` desactiva la purga).
+
+### Traer el código
+
+El ciclo normal es el del §10 del contrato:
+
+```bash
+/srv/deploy-app.sh informarcpe https://github.com/JP-Rev/Rivara-Interfaz-InformarCPE.git
+```
+
+Ese script clona en `/srv/informarcpe`, verifica que `/storage` esté montado,
+crea `/storage/informarcpe` y levanta el compose. **Clona la rama por omisión**,
+así que hasta que esto esté en `main` hay que traerlo a mano:
+
+```bash
+test -f /storage/.disco-montado || echo "ERROR: /storage no esta montado"
+sudo git clone -b claude/wizardly-archimedes-q4q876 \
+  https://github.com/JP-Rev/Rivara-Interfaz-InformarCPE.git /srv/informarcpe
+```
+
+### Los certificados de ARCA
+
+Van en `/storage/informarcpe/certs`, **no en `/srv`**: `/srv` se borra y se
+reclona sin perder nada, y los certificados no se pueden perder.
+
+```bash
+sudo mkdir -p /storage/informarcpe/certs
+```
 
 Si no sabés dónde están los archivos en este servidor:
 
@@ -109,17 +172,16 @@ sudo find /home /srv /opt /root -name '*.crt' -o -name '*.key' -o -name '*.p12' 
 Y después, **con la ruta real** en lugar de `ORIGEN`:
 
 ```bash
-mkdir -p certs
-cp ORIGEN/rivara.crt certs/
-cp ORIGEN/rivara.key certs/
-chmod 600 certs/rivara.key
+sudo cp ORIGEN/rivara.crt ORIGEN/rivara.key /storage/informarcpe/certs/
+sudo chmod 600 /storage/informarcpe/certs/rivara.key
 ```
 
-La clave privada tiene que estar **sin contraseña** y en PEM. Si está en `.p12`:
+Si están en un `.p12` (lo habitual si los bajaste del sitio de ARCA), hay que
+extraerlos; la clave privada tiene que quedar en PEM y **sin contraseña**:
 
 ```bash
-openssl pkcs12 -in rivara.p12 -clcerts -nokeys -out certs/rivara.crt
-openssl pkcs12 -in rivara.p12 -nocerts -nodes -out certs/rivara.key
+openssl pkcs12 -in rivara.p12 -clcerts -nokeys  -out rivara.crt
+openssl pkcs12 -in rivara.p12 -nocerts -nodes   -out rivara.key
 ```
 
 El certificado tiene que tener habilitado el servicio **wscpe** en ARCA
@@ -128,23 +190,37 @@ intervenido en la CPE: una CPE ajena ARCA no la devuelve. Si alguna planta está
 a nombre de otra sociedad, se agrega su certificado en `ARCA_CERTIFICADOS` y la
 app reintenta con cada uno.
 
+### Permisos
+
+El contenedor corre como **UID 10001** y escribe en `/storage/informarcpe`
+(contrato §7):
+
+```bash
+sudo chown -R 10001:10001 /storage/informarcpe
+sudo chmod 600 /storage/informarcpe/certs/*.key
+```
+
 ### Configuración y arranque
 
 ```bash
-cp .env.example .env
-# completar ARCA_CERTIFICADOS, JWT_SECRET y los mapeos
-docker compose up -d --build
-docker compose logs -f informarcpe
+cd /srv/informarcpe
+sudo cp .env.example .env
+sudo nano .env          # ARCA_CERTIFICADOS, JWT_SECRET y los mapeos
+sudo chmod 600 .env
+sudo docker compose up -d --build
 ```
 
-Verificar que levantó:
+Verificar:
 
 ```bash
+docker compose ps                        # tiene que decir healthy
 curl -s http://localhost:1007/salud
 ```
 
-Devuelve el entorno y una lista `problemas` vacía cuando está todo configurado.
-Si falta algo, lo dice ahí y también arriba en la pantalla de la app.
+`/salud` devuelve **200** con `"problemas": []` cuando está todo, y **503** con
+la lista de lo que falta si no. El healthcheck del contenedor usa esa misma
+ruta, así que un `unhealthy` significa configuración incompleta, no que la app
+esté caída.
 
 **Arrancar en `ARCA_ENTORNO=homologacion`.** Recién cuando una CPE real salga
 bien se pasa a `produccion`.
@@ -161,11 +237,14 @@ En el portal, Administrar → agregar app:
 | icono | `camion` |
 | puerto | 1007 |
 
+Y agregar la fila del puerto 1007 en el §1 del contrato, en
+`Rivara-Infraestructura`, como pide el checklist de la skill `rivara-app`.
+
 ### nginx
 
 Consultar 100 CTG tarda unos minutos y el `proxy_read_timeout` por defecto de
-nginx es de 60 segundos, así que si la app va detrás de un proxy hay que
-subirlo:
+nginx es de 60 segundos. Hoy las apps se publican directo en su puerto, así que
+esto solo aplica cuando se ponga el nginx con TLS adelante (§11 del contrato):
 
 ```nginx
 location / {
@@ -174,7 +253,7 @@ location / {
 }
 ```
 
-Si no, alcanza con tandas más chicas (`MAX_CTG`).
+Mientras no haya proxy, alcanza con tandas más chicas (`MAX_CTG`).
 
 ### Tipografía
 
@@ -246,3 +325,16 @@ pip install -r requirements.txt
 cp .env.example .env   # AUTH_DESACTIVADA=true, SALIDA_DIR=./data/salida, CACHE_DIR=./data/cache
 uvicorn app.main:app --reload --port 8000
 ```
+
+Y la prueba del §9 del contrato, igual que lo que va a hacer el servidor:
+
+```bash
+docker build -t rivara-informarcpe:local .
+docker run --rm -p 8080:80 \
+  -e AUTH_DESACTIVADA=true -e CACHE_DIR=/tmp/cache -e SALIDA_DIR=/tmp/salida \
+  --sysctl net.ipv4.ip_unprivileged_port_start=0 \
+  rivara-informarcpe:local
+```
+
+`http://localhost:8080/` tiene que cargar el formulario, y `/salud` responder
+503 con la lista de lo que falta (sin certificados montados es lo esperado).

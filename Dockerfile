@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /srv
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata curl \
+ && apt-get install -y --no-install-recommends tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -16,14 +16,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-# Corre sin privilegios: solo necesita leer los certificados y escribir /data.
-RUN useradd --create-home --uid 10001 rivara \
- && mkdir -p /data/salida /data/cache \
- && chown -R rivara:rivara /data
+# Corre sin privilegios: solo lee los certificados y escribe en /data.
+# El UID queda fijo porque /storage/informarcpe del host tiene que ser suyo
+# (contrato §7: "los contenedores escriben con el UID de su proceso").
+RUN useradd --create-home --uid 10001 rivara
 USER rivara
 
-EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD curl -fsS http://localhost:8000/salud || exit 1
+# Puerto 80 dentro del contenedor (contrato §2). Un proceso sin privilegios no
+# puede escuchar ahi por omision: el compose levanta la restriccion con el
+# sysctl net.ipv4.ip_unprivileged_port_start.
+EXPOSE 80
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+# El healthcheck va en el compose, como en los moldes del contrato.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80", "--proxy-headers"]

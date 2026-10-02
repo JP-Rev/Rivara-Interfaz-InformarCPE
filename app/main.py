@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import csv
 import logging
+from contextlib import asynccontextmanager
 import os
 import re
+import time
 import unicodedata
 import uuid
 from datetime import datetime
@@ -17,7 +19,7 @@ from pathlib import Path
 
 import jwt
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -31,8 +33,50 @@ log = logging.getLogger(__name__)
 COOKIE_SESION = "rivara_he"  # la misma del portal: no se pide login de nuevo
 MAX_CTG = int(os.getenv("MAX_CTG", "200"))
 SALIDA_DIR = Path(os.getenv("SALIDA_DIR", "/data/salida"))
+RETENCION_SALIDA_DIAS = int(os.getenv("RETENCION_SALIDA_DIAS", "30"))
+RETENCION_RESPUESTAS_DIAS = int(os.getenv("RETENCION_RESPUESTAS_DIAS", "365"))
 
-app = FastAPI(title="Informar CPE a Visec")
+
+def purgar(carpeta: Path, patron: str, dias: int) -> int:
+    """Borra los archivos mas viejos que `dias`. Devuelve cuantos borro.
+
+    Los XLSX y las respuestas de ARCA viven en /storage, que es el disco que se
+    respalda (contrato §7), asi que no pueden acumularse para siempre.
+    """
+    if dias <= 0 or not carpeta.is_dir():
+        return 0
+    limite = time.time() - dias * 86400
+    borrados = 0
+    for archivo in carpeta.glob(patron):
+        try:
+            if archivo.is_file() and archivo.stat().st_mtime < limite:
+                archivo.unlink()
+                borrados += 1
+        except OSError as error:  # permisos, o lo borro otro proceso
+            log.warning("No se pudo borrar %s: %s", archivo, error)
+    if borrados:
+        log.info("Purga: %s archivos de mas de %s dias en %s", borrados, dias, carpeta)
+    return borrados
+
+
+def purgar_todo() -> None:
+    purgar(SALIDA_DIR, "visec_cpe_*.xlsx", RETENCION_SALIDA_DIAS)
+    purgar(config.cache_dir / "respuestas", "cpe_*.json", RETENCION_RESPUESTAS_DIAS)
+
+
+@asynccontextmanager
+async def ciclo_de_vida(_: FastAPI):
+    problemas = config.validar()
+    if problemas:
+        for problema in problemas:
+            log.warning("Configuracion: %s", problema)
+    else:
+        log.info("Configuracion completa (%s, CUIT %s)", config.entorno, ", ".join(config.cuits))
+    purgar_todo()
+    yield
+
+
+app = FastAPI(title="Informar CPE a Visec", lifespan=ciclo_de_vida)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 plantillas = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
@@ -207,6 +251,8 @@ async def generar(
         else:
             fallidos.append({"ctg": ctg, "detalle": " | ".join(consulta.errores) or "Sin detalle"})
 
+    purgar_todo()
+
     nombre = ""
     if filas:
         nombre = f"visec_cpe_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}.xlsx"
@@ -238,4 +284,16 @@ def descargar(request: Request, nombre: str):
 
 @app.get("/salud")
 def salud():
-    return {"estado": "ok", "entorno": config.entorno, "problemas": config.validar()}
+    """Healthcheck del contenedor: 503 si falta configuracion o un certificado.
+
+    Que el puerto responda no alcanza: sin certificado la app no puede consultar
+    ARCA y conviene que el contenedor figure unhealthy.
+    """
+    problemas = config.validar()
+    cuerpo = {
+        "estado": "ok" if not problemas else "configuracion incompleta",
+        "entorno": config.entorno,
+        "problemas": problemas,
+    }
+    return JSONResponse(cuerpo, status_code=200 if not problemas else 503)
+
