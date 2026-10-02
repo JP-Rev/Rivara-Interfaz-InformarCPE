@@ -91,13 +91,18 @@ class Config:
     portal_url: str = os.getenv("PORTAL_URL", "").strip()
     auth_desactivada: bool = _bool("AUTH_DESACTIVADA", False)
 
+    # ARCA mueve los endpoints cada tanto (y migro de afip.gob.ar a arca.gob.ar),
+    # asi que las URL se pueden pisar desde el .env sin tocar el codigo.
+    url_wsaa_override: str = os.getenv("ARCA_URL_WSAA", "").strip()
+    url_wscpe_override: str = os.getenv("ARCA_URL_WSCPE", "").strip()
+
     @property
     def url_wsaa(self) -> str:
-        return URLS[self.entorno]["wsaa"]
+        return self.url_wsaa_override or URLS[self.entorno]["wsaa"]
 
     @property
     def url_wscpe(self) -> str:
-        return URLS[self.entorno]["wscpe"]
+        return self.url_wscpe_override or URLS[self.entorno]["wscpe"]
 
     @property
     def cuits(self) -> list[str]:
