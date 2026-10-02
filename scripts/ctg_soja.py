@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Lista los CTG de los ingresos de soja (especie 38) para informar a Visec.
 
-Corre en el servidor que tiene SQL*Plus y consulta
-SYSADMIN_ELN.INGRESOS_PLANTAS, igual que cpe_bolsatech.py. No necesita más
-dependencias que python-dotenv.
+Pensado para copiarse a una carpeta cualquiera del servidor que tiene SQL*Plus
+(por ejemplo el Escritorio) y correrse ahi: lee el .env y escribe el CSV en la
+misma carpeta donde esta este archivo.
 
-Genera un CSV con los CTG y los dos datos que ARCA no tiene (la fecha del
-movimiento y el peso que entró a stock, que son de la balanza). Ese archivo es
-el que se sube a la app "Informar CPE a Visec".
+No necesita instalar nada: usa solo la biblioteca estandar de Python 3.8+.
+
+Consulta SYSADMIN_ELN.INGRESOS_PLANTAS igual que cpe_bolsatech.py, y ademas del
+CTG exporta la fecha del movimiento y el peso neto de balanza, que son los dos
+datos que ARCA no tiene. El CSV resultante se sube a la app "Informar CPE a
+Visec".
 
 Uso:
+  python ctg_soja.py                          (los ingresos de hoy)
   python ctg_soja.py --desde 2026-10-01
   python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07
-  python ctg_soja.py --desde 2026-10-01 --planta 2 -o ctg.csv
+  python ctg_soja.py --desde 2026-10-01 --planta 2
 """
 
 from __future__ import annotations
@@ -26,10 +30,21 @@ import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from dotenv import load_dotenv
-
+# La carpeta donde esta este archivo: de aca sale el .env y aca va el CSV.
 BASE_DIR = Path(__file__).resolve().parent
-ESPECIE_SOJA = "38"  # código interno del sistema; es el que Visec pide informar
+ARCHIVO_ENV = BASE_DIR / ".env"
+
+ESPECIE_SOJA = "38"  # codigo interno del sistema; es el grano que pide Visec
+
+PLANTILLA_ENV = r"""# Credenciales de Oracle: las mismas que usa cpe_bolsatech.py.
+# Este archivo tiene la clave de la base: no lo compartas ni lo subas a ningun
+# repositorio.
+
+SQLPLUS_EXE=D:\oracle\product\11.2.0\client_1\bin\sqlplus.exe
+ORACLE_USUARIO=
+ORACLE_PASSWORD=
+ORACLE_ALIAS=BASE
+"""
 
 COLUMNAS = [
     "ctg", "numero_cpe", "fecha_movimiento", "peso_ingreso_stock",
@@ -49,6 +64,53 @@ SELECT = """
     NVL(TRIM(TO_CHAR(I.IPL_CUIT_PRODUCTOR)), '')
 """
 
+
+# ---------------------------------------------------------------------------
+# Configuracion
+# ---------------------------------------------------------------------------
+
+def leer_env() -> dict[str, str]:
+    """Lee el .env de esta carpeta. Si no existe, lo crea y corta."""
+    if not ARCHIVO_ENV.exists():
+        ARCHIVO_ENV.write_text(PLANTILLA_ENV, encoding="utf-8")
+        sys.exit(
+            f"Se creo el archivo de configuracion:\n  {ARCHIVO_ENV}\n\n"
+            "Abrilo, completa ORACLE_USUARIO, ORACLE_PASSWORD y la ruta de\n"
+            "SQLPLUS_EXE, guardalo y volve a ejecutar."
+        )
+
+    valores: dict[str, str] = {}
+    for linea in ARCHIVO_ENV.read_text(encoding="utf-8-sig").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#") or "=" not in linea:
+            continue
+        clave, valor = linea.split("=", 1)
+        valores[clave.strip()] = valor.strip().strip('"').strip("'")
+
+    # Una variable del entorno de Windows gana sobre el .env, para poder
+    # probar sin editar el archivo.
+    for clave in ("SQLPLUS_EXE", "ORACLE_USUARIO", "ORACLE_PASSWORD", "ORACLE_ALIAS"):
+        if os.environ.get(clave):
+            valores[clave] = os.environ[clave]
+
+    faltan = [c for c in ("ORACLE_USUARIO", "ORACLE_ALIAS") if not valores.get(c)]
+    if faltan:
+        sys.exit(f"Falta completar {', '.join(faltan)} en {ARCHIVO_ENV}")
+
+    sqlplus = valores.get("SQLPLUS_EXE", "")
+    if not sqlplus:
+        sys.exit(f"Falta SQLPLUS_EXE en {ARCHIVO_ENV}")
+    if not Path(sqlplus).exists():
+        sys.exit(
+            f"No se encontro SQL*Plus en:\n  {sqlplus}\n\n"
+            f"Corregi SQLPLUS_EXE en {ARCHIVO_ENV}."
+        )
+    return valores
+
+
+# ---------------------------------------------------------------------------
+# Consulta
+# ---------------------------------------------------------------------------
 
 def generar_sql(desde: datetime, hasta: datetime, planta: str | None, especie: str) -> str:
     filtro_planta = f"\n  AND I.IPL_PLANTA = {int(planta)}" if planta else ""
@@ -79,21 +141,26 @@ EXIT 0
 """
 
 
-def ejecutar(sqlplus: str, usuario: str, password: str, alias: str, sql: str) -> list[dict[str, str]]:
+def ejecutar(config: dict[str, str], sql: str) -> list[dict[str, str]]:
     archivo_sql: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False,
                                          encoding="latin-1", newline="\n") as archivo:
             archivo.write(sql)
             archivo_sql = Path(archivo.name)
-        comandos = f'CONNECT {usuario}/"{password}"@{alias}\n@{archivo_sql}\n'
+
+        comandos = (
+            f'CONNECT {config["ORACLE_USUARIO"]}/"{config.get("ORACLE_PASSWORD", "")}"'
+            f'@{config["ORACLE_ALIAS"]}\n@{archivo_sql}\n'
+        )
         resultado = subprocess.run(
-            [sqlplus, "-L", "-S", "/nolog"], input=comandos, capture_output=True,
-            text=True, encoding="latin-1", errors="replace", timeout=180,
+            [config["SQLPLUS_EXE"], "-L", "-S", "/nolog"], input=comandos,
+            capture_output=True, text=True, encoding="latin-1", errors="replace", timeout=180,
         )
         salida, error = resultado.stdout or "", resultado.stderr or ""
-        if resultado.returncode != 0 or "ORA-" in f"{salida}{error}".upper() or "SP2-" in f"{salida}{error}".upper():
-            sys.exit(f"Error de SQL*Plus ({resultado.returncode}):\n{salida}\n{error}")
+        completa = f"{salida}\n{error}".upper()
+        if resultado.returncode != 0 or "ORA-" in completa or "SP2-" in completa:
+            sys.exit(f"Error de SQL*Plus (codigo {resultado.returncode}):\n{salida}\n{error}")
 
         registros = []
         for linea in salida.splitlines():
@@ -111,49 +178,47 @@ def ejecutar(sqlplus: str, usuario: str, password: str, alias: str, sql: str) ->
             archivo_sql.unlink()
 
 
-def main() -> int:
-    load_dotenv(BASE_DIR / ".env")
-    load_dotenv(BASE_DIR.parent / ".env")
+# ---------------------------------------------------------------------------
 
+def main() -> int:
     ap = argparse.ArgumentParser(description="CTG de ingresos de soja para informar a Visec")
-    ap.add_argument("--desde", type=date.fromisoformat, required=True, help="AAAA-MM-DD")
-    ap.add_argument("--hasta", type=date.fromisoformat, help="AAAA-MM-DD, inclusive (default = desde)")
+    ap.add_argument("--desde", type=date.fromisoformat, help="AAAA-MM-DD (por omision, hoy)")
+    ap.add_argument("--hasta", type=date.fromisoformat, help="AAAA-MM-DD, inclusive (por omision, igual que desde)")
     ap.add_argument("--planta", help="Filtrar por IPL_PLANTA")
-    ap.add_argument("--especie", default=ESPECIE_SOJA, help=f"Código interno de especie (default {ESPECIE_SOJA} = soja)")
-    ap.add_argument("-o", "--salida", type=Path, help="Archivo CSV de salida")
+    ap.add_argument("--especie", default=ESPECIE_SOJA,
+                    help=f"Codigo interno de especie (por omision {ESPECIE_SOJA} = soja)")
+    ap.add_argument("-o", "--salida", type=Path, help="Nombre del CSV (por omision, en esta misma carpeta)")
     args = ap.parse_args()
 
-    sqlplus = os.getenv("SQLPLUS_EXE", r"D:\oracle\product\11.2.0\client_1\bin\sqlplus.exe").strip()
-    usuario = os.getenv("ORACLE_USUARIO", "").strip()
-    password = os.getenv("ORACLE_PASSWORD", "")
-    alias = os.getenv("ORACLE_ALIAS", "BASE").strip()
-    if not Path(sqlplus).exists():
-        sys.exit(f"No se encontró SQL*Plus en: {sqlplus}")
-    if not usuario or not alias:
-        sys.exit("Falta ORACLE_USUARIO u ORACLE_ALIAS en el .env")
+    config = leer_env()
 
-    hasta = args.hasta or args.desde
-    if hasta < args.desde:
+    desde = args.desde or date.today()
+    hasta = args.hasta or desde
+    if hasta < desde:
         ap.error("--hasta no puede ser anterior a --desde")
 
-    sql = generar_sql(
-        datetime.combine(args.desde, datetime.min.time()),
+    print(f"Consultando ingresos de especie {args.especie} del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}...")
+    registros = ejecutar(config, generar_sql(
+        datetime.combine(desde, datetime.min.time()),
         datetime.combine(hasta + timedelta(days=1), datetime.min.time()),
         args.planta, args.especie,
-    )
-    registros = ejecutar(sqlplus, usuario, password, alias, sql)
+    ))
     if not registros:
         print("No hay ingresos con CTG para esos filtros.")
         return 0
 
-    salida = args.salida or BASE_DIR / f"ctg_soja_{args.desde:%Y%m%d}_{hasta:%Y%m%d}.csv"
+    salida = args.salida or BASE_DIR / f"ctg_soja_{desde:%Y%m%d}_{hasta:%Y%m%d}.csv"
+    if not salida.is_absolute():
+        salida = BASE_DIR / salida
+    # utf-8-sig para que Excel abra bien los acentos al hacer doble clic.
     with salida.open("w", newline="", encoding="utf-8-sig") as archivo:
         escritor = csv.DictWriter(archivo, fieldnames=COLUMNAS, delimiter=";")
         escritor.writeheader()
         escritor.writerows(registros)
 
-    print(f"OK: {len(registros)} CTG -> {salida}")
-    print("Subí ese archivo en la app 'Informar CPE a Visec'.")
+    print(f"\nListo: {len(registros)} CTG")
+    print(f"Archivo: {salida}")
+    print("\nSubi ese archivo en la app 'Informar CPE a Visec'.")
     return 0
 
 

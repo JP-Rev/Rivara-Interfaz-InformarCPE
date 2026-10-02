@@ -34,13 +34,14 @@ en ARCA y la app lo avisa.
 
 ## Paso 1 — los CTG, en el servidor de Oracle
 
-El script solo necesita `python-dotenv`:
+El script no necesita instalar nada: usa solo la biblioteca estándar de
+Python 3.8+. Se copia `scripts/ctg_soja.py` y `scripts/Generar CTG.bat` a una
+carpeta cualquiera del equipo que tiene SQL*Plus —por ejemplo
+`C:\Users\JREALE\Desktop\Visec Informa CPE`— y trabaja ahí: lee el `.env` de
+esa carpeta y escribe el CSV en esa misma carpeta.
 
-```bat
-pip install python-dotenv
-```
-
-Un `.env` junto al script con las mismas credenciales que usa `cpe_bolsatech.py`:
+La primera corrida crea un `.env` con las claves vacías y corta avisando. Se
+completa con las mismas credenciales que usa `cpe_bolsatech.py`:
 
 ```ini
 SQLPLUS_EXE=D:\oracle\product\11.2.0\client_1\bin\sqlplus.exe
@@ -49,10 +50,13 @@ ORACLE_PASSWORD=
 ORACLE_ALIAS=BASE
 ```
 
+Después, doble clic en **Generar CTG.bat** (pide las fechas) o desde la consola:
+
 ```bat
+python ctg_soja.py                            :: los ingresos de hoy
 python ctg_soja.py --desde 2026-10-01
 python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07
-python ctg_soja.py --desde 2026-10-01 --planta 2 -o ctg.csv
+python ctg_soja.py --desde 2026-10-01 --planta 2
 ```
 
 Deja un `ctg_soja_AAAAMMDD_AAAAMMDD.csv` con una fila por CTG. Ese archivo es el
@@ -60,6 +64,9 @@ que se sube en la app.
 
 Filtra `IPL_ESPECIE = '38'` (soja). Con `--especie` se puede informar otro grano
 sin tocar el código.
+
+**Ese `.env` tiene la clave de la base.** Queda en el Escritorio del equipo, así
+que no se comparte la carpeta ni se sube a ningún repositorio.
 
 ## Paso 2 — la app, en el servidor Ubuntu
 
