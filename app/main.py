@@ -6,6 +6,7 @@ ARCA y arma el XLSX con la plantilla de Visec.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -26,6 +27,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .config import BASE_DIR, config
+from . import certificados
+from .correo import ErrorCorreo, enviar as enviar_mail, problemas_correo
 from .planillas import a_texto as planilla_a_texto, es_planilla
 from .visec import Fila, armar_fila, escribir
 from .wscpe import consultar
@@ -76,7 +79,25 @@ async def ciclo_de_vida(_: FastAPI):
     else:
         log.info("Configuracion completa (%s, CUIT %s)", config.entorno, ", ".join(config.cuits))
     purgar_todo()
+    tarea = asyncio.create_task(_vigilar_certificados())
     yield
+    tarea.cancel()
+
+
+async def _vigilar_certificados() -> None:
+    """Revisa los vencimientos al arrancar y cada CERT_CHEQUEO_HORAS.
+
+    No hay que esperar a que alguien abra la app: el mail sale solo. Que no se
+    repita lo resuelve chequear_y_avisar, que recuerda los umbrales avisados.
+    """
+    while True:
+        try:
+            enviados = await asyncio.to_thread(certificados.chequear_y_avisar)
+            if enviados:
+                log.info("Avisos de vencimiento enviados: %s", "; ".join(enviados))
+        except Exception:  # un error aca no puede tirar abajo la app
+            log.exception("Fallo el chequeo de vencimiento de certificados")
+        await asyncio.sleep(max(config.cert_chequeo_horas, 1) * 3600)
 
 
 app = FastAPI(title="Informar CPE a Visec", lifespan=ciclo_de_vida)
@@ -304,6 +325,7 @@ def _contexto(request: Request, usuario: dict, **extra) -> dict:
         "max_ctg": MAX_CTG,
         "portal_url": url_portal(request),
         "es_admin": es_admin(usuario),
+        "certs_alerta": [e for e in certificados.estados() if e.nivel != "ok"] if es_admin(usuario) else [],
         # None mientras un admin no eligio: la barra no muestra "Versión ...".
         "modo": modo_de(request, usuario),
         **extra,
@@ -446,6 +468,81 @@ def descargar_script(request: Request):
         zip_.writestr("Generar CTG.bat", bat.replace("\r\n", "\n").replace("\n", "\r\n"))
     return Response(buffer.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="ctg_soja.zip"'})
+
+
+def _solo_admin(request: Request) -> dict:
+    usuario = usuario_de(request)
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesión no válida. Entrá desde el portal.")
+    if not es_admin(usuario):
+        raise HTTPException(status_code=403, detail="Solo para administradores")
+    return usuario
+
+
+def _pagina_certificados(request: Request, usuario: dict, status_code: int = 200, **extra):
+    return plantillas.TemplateResponse(
+        request, "certificados.html",
+        _contexto(request, usuario, seccion="certificados", estados=certificados.estados(),
+                  correo_problemas=problemas_correo(), correo_para=", ".join(config.smtp_para),
+                  avisos_dias=config.cert_aviso_dias, app_url=config.app_url, **extra),
+        status_code=status_code,
+    )
+
+
+@app.get("/certificados", response_class=HTMLResponse)
+def ver_certificados(request: Request):
+    """Estado de los certificados de ARCA y reemplazo arrastrando el archivo."""
+    try:
+        usuario = _solo_admin(request)
+    except HTTPException as error:
+        if error.status_code == 401:
+            respuesta = _sin_sesion(request)
+            if isinstance(respuesta, RedirectResponse):
+                return respuesta
+        raise
+    return _pagina_certificados(request, usuario)
+
+
+@app.post("/certificados/{cuit}", response_class=HTMLResponse)
+async def cargar_certificado(
+    request: Request,
+    cuit: str,
+    crt: UploadFile = File(...),
+    key: UploadFile | None = File(None),
+):
+    usuario = _solo_admin(request)
+    if cuit not in config.cuits:
+        raise HTTPException(status_code=404, detail="No hay un certificado configurado para ese CUIT")
+    datos_crt = await crt.read()
+    datos_key = await key.read() if key and key.filename else None
+    try:
+        nuevo = certificados.reemplazar(cuit, datos_crt, datos_key)
+    except certificados.ErrorCertificado as error:
+        return _pagina_certificados(request, usuario, status_code=400, error=str(error), error_cuit=cuit)
+    log.info("Usuario %s reemplazó el certificado del CUIT %s", usuario.get("email") or usuario.get("name"), cuit)
+    return _pagina_certificados(
+        request, usuario,
+        ok=f"Certificado del CUIT {cuit} reemplazado. Vence el {nuevo.vence:%d/%m/%Y}. "
+           "Los anteriores quedaron en certs/respaldo.",
+    )
+
+
+@app.post("/certificados-prueba-mail", response_class=HTMLResponse)
+def mail_de_prueba(request: Request):
+    """Manda un mail de prueba para verificar la configuración SMTP."""
+    usuario = _solo_admin(request)
+    link = certificados.link_certificados()
+    try:
+        enviar_mail(
+            "Prueba de correo — Informar CPE a Visec",
+            "Si te llegó este mail, los avisos de vencimiento de los certificados de ARCA van a llegar."
+            + (f"\n\nPágina de certificados: {link}" if link else ""),
+            "<p>Si te llegó este mail, los avisos de vencimiento de los certificados de ARCA van a llegar.</p>"
+            + (f'<p><a href="{link}">Página de certificados</a></p>' if link else ""),
+        )
+    except ErrorCorreo as error:
+        return _pagina_certificados(request, usuario, status_code=400, error=str(error))
+    return _pagina_certificados(request, usuario, ok=f"Mail de prueba enviado a {', '.join(config.smtp_para)}.")
 
 
 @app.get("/egresos", response_class=HTMLResponse)

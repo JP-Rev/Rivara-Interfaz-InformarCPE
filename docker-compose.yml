@@ -15,8 +15,9 @@ services:
       # (contrato §7). Guarda los certificados, los tickets de acceso, las
       # respuestas de ARCA y los XLSX generados.
       - /storage/informarcpe:/data
-      # Los certificados, de solo lectura: la app nunca los escribe.
-      - /storage/informarcpe/certs:/certs:ro
+      # Los certificados. Con escritura: se reemplazan desde la pantalla de
+      # certificados (la app valida el archivo y deja respaldo de los anteriores).
+      - /storage/informarcpe/certs:/certs
     # uvicorn corre como UID 10001 y el contenedor escucha en el puerto 80.
     # Sin esto, bind() falla con "Permission denied".
     sysctls:

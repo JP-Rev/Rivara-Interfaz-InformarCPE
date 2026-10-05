@@ -171,6 +171,28 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 .ic-opcion-nombre { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
 .ic-opcion-desc { font-size: 14px; font-weight: 600; color: var(--rv-texto-2); }
 
+/* ---- Certificados ---- */
+
+.ic-cert-cabecera { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.ic-cert-zonas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.ic-soltar--chico { padding: 14px 16px; }
+
+/* El bordo es solo para avisos (kit §2): aca es justo eso. */
+.ic-chip-alerta { background: #FBEDED; color: var(--rv-bordo); }
+
+.ic-alerta-cert {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--rv-bordo);
+  border-left: 4px solid var(--rv-bordo);
+}
+
+.ic-alerta-cert:hover { color: var(--rv-bordo); }
+.ic-alerta-link { margin-left: auto; font-weight: 700; white-space: nowrap; }
+
 /* ---- Resultado ---- */
 
 .ic-resumen { display: flex; flex-wrap: wrap; gap: 10px; }

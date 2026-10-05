@@ -103,6 +103,29 @@ class Config:
     portal_url: str = os.getenv("PORTAL_URL", "").strip()
     auth_desactivada: bool = _bool("AUTH_DESACTIVADA", False)
 
+    # Correo (Office 365 u otro SMTP). Mismos nombres que el .env de
+    # cpe_bolsatech.py, asi se copian los valores tal cual.
+    smtp_habilitado: bool = _bool("SMTP_HABILITADO", False)
+    smtp_servidor: str = os.getenv("SMTP_SERVER", "smtp.office365.com").strip()
+    smtp_puerto: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_usuario: str = os.getenv("SMTP_USER", "").strip()
+    smtp_clave: str = os.getenv("SMTP_PASS", "")
+    smtp_desde: str = os.getenv("SMTP_FROM", "").strip()
+    smtp_para: list[str] = field(default_factory=lambda: [
+        c.strip() for c in os.getenv("SMTP_TO", "").split(",") if c.strip()
+    ])
+
+    # Aviso de vencimiento de los certificados de ARCA: un mail al entrar en
+    # cada umbral (dias antes del vencimiento), una sola vez por umbral.
+    cert_aviso_dias: list[int] = field(default_factory=lambda: sorted(
+        {int(d) for d in os.getenv("CERT_AVISO_DIAS", "30,15,7,3,1").split(",") if d.strip().isdigit()},
+        reverse=True,
+    ))
+    cert_chequeo_horas: int = int(os.getenv("CERT_CHEQUEO_HORAS", "12"))
+    # La direccion de la app, para el link del mail: el aviso sale de un proceso
+    # en segundo plano y no hay un navegador del que sacar el host.
+    app_url: str = os.getenv("APP_URL", "").strip().rstrip("/")
+
     # ARCA mueve los endpoints cada tanto (y migro de afip.gob.ar a arca.gob.ar),
     # asi que las URL se pueden pisar desde el .env sin tocar el codigo.
     url_wsaa_override: str = os.getenv("ARCA_URL_WSAA", "").strip()

@@ -145,7 +145,8 @@ No usa base de datos. En `/storage/informarcpe` quedan cuatro cosas:
 
 | Ruta en el host | Qué es | ¿Respaldar? |
 |---|---|---|
-| `/storage/informarcpe/certs/` | certificado y clave privada de ARCA | **sí, es lo único insustituible** |
+| `/storage/informarcpe/certs/` | certificado y clave privada de ARCA, y `respaldo/` con los reemplazados | **sí, es lo único insustituible** |
+| `/storage/informarcpe/cache/avisos_certificados.json` | qué avisos de vencimiento ya se mandaron | no |
 | `/storage/informarcpe/cache/respuestas/` | respuesta cruda de cada CPE consultada | sí: es el respaldo de lo que se informó |
 | `/storage/informarcpe/salida/` | los XLSX generados | no: se regeneran consultando otra vez |
 | `/storage/informarcpe/cache/ta_*.json` | tickets de acceso de WSAA, vencen en 12 h | no |
@@ -221,6 +222,27 @@ El certificado tiene que tener habilitado el servicio **wscpe** en ARCA
 intervenido en la CPE: una CPE ajena ARCA no la devuelve. Si alguna planta está
 a nombre de otra sociedad, se agrega su certificado en `ARCA_CERTIFICADOS` y la
 app reintenta con cada uno.
+
+### Vencimiento y renovación del certificado
+
+La app revisa los certificados al arrancar y cada `CERT_CHEQUEO_HORAS`, y
+manda un mail al entrar en cada umbral de `CERT_AVISO_DIAS` (por omisión 30,
+15, 7, 3 y 1 días antes), una sola vez por umbral, a `SMTP_TO`. El mail trae
+el link a la página **Certificados** (`APP_URL` + `/certificados`), que solo
+ven los admins.
+
+Ahí se renueva arrastrando el `.crt` nuevo que da ARCA, y el `.key` solo si se
+pidió con una clave nueva. Antes de reemplazar se valida que sea un
+certificado, que el CUIT sea el mismo, que no esté vencido y que corresponda a
+la clave. Los anteriores quedan en `/storage/informarcpe/certs/respaldo`, así
+que volver atrás es copiar de ahí. Por eso el directorio `certs` se monta con
+escritura.
+
+El correo usa los mismos datos que `cpe_bolsatech.py` (Office 365:
+`smtp.office365.com`, puerto 587). El botón "Enviar mail de prueba" de la
+página de certificados verifica la configuración. Si el login falla con
+`5.7.139`, Microsoft tiene desactivado el SMTP autenticado para esa cuenta y se
+habilita en el centro de administración de Microsoft 365.
 
 ### Permisos
 

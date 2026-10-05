@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block titulo %}Certificados de ARCA{% endblock %}
+
+{% block contenido %}
+<div class="ic-titulo">
+  <h2>Certificados de ARCA</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/">Volver a Ingresos</a>
+</div>
+
+{% if ok %}<p class="rv-nota rv-nota--ok">{{ ok }}</p>{% endif %}
+{% if error and not error_cuit %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+{% for est in estados %}
+<form class="rv-card ic-tarjeta" method="post" action="/certificados/{{ est.cuit }}" enctype="multipart/form-data">
+  <div class="ic-cert-cabecera">
+    <div>
+      <h3>{{ est.titular or 'CUIT ' ~ est.cuit }}</h3>
+      <span class="rv-meta rv-num">CUIT {{ est.cuit }}</span>
+    </div>
+    {% if est.nivel == 'ok' %}
+      <span class="rv-chip rv-chip--tint">Vence el {{ est.vence.strftime('%d/%m/%Y') }} · {{ est.dias }} días</span>
+    {% elif est.nivel == 'aviso' %}
+      <span class="rv-chip ic-chip-alerta">Vence en {{ est.dias }} días · {{ est.vence.strftime('%d/%m/%Y') }}</span>
+    {% elif est.nivel == 'vencido' %}
+      <span class="rv-chip ic-chip-alerta">Vencido el {{ est.vence.strftime('%d/%m/%Y') }}</span>
+    {% else %}
+      <span class="rv-chip ic-chip-alerta">Con problemas</span>
+    {% endif %}
+  </div>
+
+  {% if est.error %}<p class="rv-nota rv-nota--error">{{ est.error }}</p>{% endif %}
+  {% if error and error_cuit == est.cuit %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+  <p class="ic-ayuda">
+    Para renovarlo: pedí el certificado nuevo en ARCA (Administración de
+    Certificados Digitales), descargá el <code>.crt</code> y soltalo acá. Si lo
+    pediste con una clave nueva, soltá también el <code>.key</code>; si
+    reusaste la misma, alcanza con el <code>.crt</code>.
+  </p>
+
+  <div class="ic-cert-zonas">
+    <label class="ic-soltar ic-soltar--chico" data-zona>
+      <input type="file" name="crt" accept=".crt,.pem,.cer" required hidden>
+      <span class="ic-soltar-texto">
+        <strong data-titulo>Certificado (.crt)</strong>
+        <small data-detalle>Soltalo acá o tocá para elegirlo — obligatorio</small>
+      </span>
+    </label>
+    <label class="ic-soltar ic-soltar--chico" data-zona>
+      <input type="file" name="key" accept=".key,.pem" hidden>
+      <span class="ic-soltar-texto">
+        <strong data-titulo>Clave privada (.key)</strong>
+        <small data-detalle>Solo si es una clave nueva — opcional</small>
+      </span>
+    </label>
+  </div>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit">Reemplazar el certificado</button>
+    <span class="rv-meta">Se valida antes de reemplazar, y los anteriores quedan en <code>certs/respaldo</code>.</span>
+  </div>
+</form>
+{% else %}
+<div class="rv-card"><p class="rv-nota rv-nota--error">No hay certificados configurados en ARCA_CERTIFICADOS.</p></div>
+{% endfor %}
+
+<div class="rv-card ic-tarjeta">
+  <h3>Aviso por mail</h3>
+  <p class="ic-ayuda">
+    La app revisa los certificados sola y manda un mail
+    {{ avisos_dias | join(', ') }} días antes del vencimiento (uno por cada
+    umbral), con el link a esta página.
+  </p>
+  {% if correo_problemas %}
+    <p class="rv-nota rv-nota--error">
+      El mail no está configurado: {{ correo_problemas | join('; ') }}. Se configura en el <code>.env</code> del servidor.
+    </p>
+  {% else %}
+    <p class="rv-nota rv-nota--info">Los avisos van a <strong>{{ correo_para }}</strong>.</p>
+  {% endif %}
+  {% if not app_url %}
+    <p class="rv-nota rv-nota--info">Falta <code>APP_URL</code> en el <code>.env</code>: sin eso el mail llega sin el link a esta página.</p>
+  {% endif %}
+  <form method="post" action="/certificados-prueba-mail" class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit" {% if correo_problemas %}disabled{% endif %}>Enviar mail de prueba</button>
+  </form>
+</div>
+
+<script>
+  // Cada zona carga su propio <input file>: arrastrar o tocar.
+  document.querySelectorAll('[data-zona]').forEach((zona) => {
+    const input = zona.querySelector('input[type=file]')
+    const titulo = zona.querySelector('[data-titulo]')
+    const detalle = zona.querySelector('[data-detalle]')
+    const mostrar = (archivo) => {
+      if (!archivo) return
+      zona.classList.add('ic-soltar--cargado')
+      titulo.textContent = archivo.name
+      detalle.textContent = 'Tocá para cambiarlo'
+    }
+    input.addEventListener('change', () => mostrar(input.files[0]))
+    ;['dragenter', 'dragover'].forEach((ev) => zona.addEventListener(ev, (e) => {
+      e.preventDefault(); zona.classList.add('ic-soltar--encima')
+    }))
+    ;['dragleave', 'dragend'].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove('ic-soltar--encima')))
+    zona.addEventListener('drop', (e) => {
+      e.preventDefault(); zona.classList.remove('ic-soltar--encima')
+      const archivo = e.dataTransfer.files[0]
+      if (!archivo) return
+      const lista = new DataTransfer(); lista.items.add(archivo)
+      input.files = lista.files
+      mostrar(archivo)
+    })
+  })
+  // Soltar fuera de una zona no tiene que abrir el archivo en el navegador.
+  ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => {
+    if (!e.target.closest('[data-zona]')) e.preventDefault()
+  }))
+</script>
+{% endblock %}

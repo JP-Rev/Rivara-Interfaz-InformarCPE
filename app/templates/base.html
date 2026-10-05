@@ -17,6 +17,9 @@
     </span>
     <div class="ic-barra-acciones">
       {% if usuario and usuario.name %}<span class="rv-meta">{{ usuario.name }}</span>{% endif %}
+      {% if es_admin %}
+        <a class="rv-btn rv-btn--fantasma" href="/certificados">Certificados</a>
+      {% endif %}
       {% if es_admin and modo %}
         <a class="rv-btn rv-btn--fantasma" href="/modo/elegir">Versión {{ modo }} · Cambiar versión</a>
       {% endif %}
@@ -39,11 +42,25 @@
   </section>
 
   <nav class="ic-solapas" aria-label="Tipo de movimiento">
-    <a class="ic-solapa {% if seccion != 'egresos' %}ic-solapa--activa{% endif %}" href="/"
-       {% if seccion != 'egresos' %}aria-current="page"{% endif %}>Ingresos</a>
+    <a class="ic-solapa {% if seccion not in ('egresos', 'certificados') %}ic-solapa--activa{% endif %}" href="/"
+       {% if seccion not in ('egresos', 'certificados') %}aria-current="page"{% endif %}>Ingresos</a>
     <a class="ic-solapa {% if seccion == 'egresos' %}ic-solapa--activa{% endif %}" href="/egresos"
        {% if seccion == 'egresos' %}aria-current="page"{% endif %}>Egresos</a>
   </nav>
+
+  {% if certs_alerta and seccion != 'certificados' %}
+    <a class="rv-card rv-card--enlace ic-alerta-cert" href="/certificados">
+      {% for e in certs_alerta %}
+        <span>
+          <strong>Certificado de ARCA, CUIT {{ e.cuit }}:</strong>
+          {% if e.nivel == 'vencido' %}venció el {{ e.vence.strftime('%d/%m/%Y') }}.
+          {% elif e.nivel == 'aviso' %}vence en {{ e.dias }} días ({{ e.vence.strftime('%d/%m/%Y') }}).
+          {% else %}{{ e.error or 'no se pudo leer' }}.{% endif %}
+        </span>
+      {% endfor %}
+      <span class="ic-alerta-link">Renovarlo →</span>
+    </a>
+  {% endif %}
 
   {% if problemas %}
     <div class="rv-card">
