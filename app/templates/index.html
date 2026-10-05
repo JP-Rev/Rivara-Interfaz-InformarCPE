@@ -8,11 +8,11 @@
 
 <form class="rv-card ic-tarjeta" method="post" action="/generar" enctype="multipart/form-data" id="formulario">
   <p class="ic-ayuda">
-    Arrastrá el archivo que genera <code>ctg_soja.py</code>, o cargá los CTG a
-    mano con el botón de abajo. Del archivo se toman también los datos del sistema que no están
-    en ARCA: fecha del movimiento, peso que entró a stock, kilos estimados y
-    RENSPA. Todo lo demás —intervinientes, pesos de la carta, grano, campaña— lo
-    trae ARCA.
+    Arrastrá el Excel que exporta el editor SQL del ERP con la consulta de
+    ingresos. Del archivo se toman los datos del sistema que no están en ARCA:
+    fecha del movimiento, peso que entró a stock, kilos estimados y RENSPA.
+    Todo lo demás —intervinientes, pesos de la carta, grano, campaña— lo trae
+    ARCA.
   </p>
 
   {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
@@ -20,7 +20,7 @@
   <!-- Zona de arrastre. El punteado es la única línea de la app: acá no es
        decoración sino la señal de que algo se puede soltar adentro. -->
   <label class="ic-soltar" id="zona">
-    <input type="file" id="archivo" name="archivo" accept=".csv,.txt" hidden>
+    <input type="file" id="archivo" name="archivo" accept=".xls,.xlsx,.csv,.txt" hidden>
     <span class="rv-disco rv-disco--md" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
            stroke-linecap="round" stroke-linejoin="round">
@@ -29,8 +29,8 @@
       </svg>
     </span>
     <span class="ic-soltar-texto">
-      <strong id="zona-titulo">Soltá acá el CSV del script</strong>
-      <small id="zona-detalle">o tocá para elegirlo — .csv o .txt</small>
+      <strong id="zona-titulo">Soltá acá el Excel de la consulta</strong>
+      <small id="zona-detalle">o tocá para elegirlo — .xls, .xlsx, .txt o .csv</small>
     </span>
   </label>
 
@@ -55,13 +55,22 @@
 </form>
 
 <div class="rv-card ic-tarjeta">
-  <h3>Cómo sale la lista de CTG</h3>
-  <p class="ic-ayuda">
-    En el equipo donde está Oracle, <code>ctg_soja.py</code> consulta los
-    ingresos a planta de soja (especie 38) de un rango de fechas en las tres
-    sociedades y deja un CSV con los CTG. Ese archivo es el que se sube acá.
+  <h3>Cómo se saca el Excel del ERP</h3>
+  <ol class="ic-lista">
+    <li>Descargá la consulta con el botón de abajo y abrila con el Bloc de notas.</li>
+    <li>Copiala en el <strong>editor SQL del ERP</strong>, entrando con la sociedad que corresponda.</li>
+    <li>Cambiá solo las <strong>dos fechas</strong> (desde y hasta, formato DD/MM/AAAA).
+        La de hasta es inclusive; para un solo día, poné las dos iguales.</li>
+    <li>Ejecutala y exportá el resultado a <strong>Excel</strong>.</li>
+    <li>Arrastrá ese Excel en el recuadro de arriba.</li>
+  </ol>
+  <p class="rv-nota rv-nota--info">
+    No le cambies las columnas a la consulta: la app las reconoce por el nombre
+    (CTG, FECHA_MOVIMIENTO, PESO_INGRESO_STOCK, KILOS_ESTIMADOS, RENSPA).
   </p>
-  <pre class="ic-codigo">python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07</pre>
+  <div class="ic-acciones">
+    <a class="rv-btn rv-btn--secundario" href="/consulta/ingresos_erp.sql" download>Descargar la consulta SQL</a>
+  </div>
 </div>
 
 <script>

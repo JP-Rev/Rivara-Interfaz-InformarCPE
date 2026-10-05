@@ -32,7 +32,24 @@ movimiento y el peso que entró a stock, que son de la balanza. Si en vez del CS
 se pega una lista pelada de CTG, esas dos columnas se completan con lo que haya
 en ARCA y la app lo avisa.
 
-## Paso 1 — los CTG, en el servidor de Oracle
+## Paso 1 — los CTG desde el editor SQL del ERP (operarios)
+
+La forma de todos los días. La consulta está en
+`app/consultas/ingresos_erp.sql` y se descarga desde la app (botón
+"Descargar la consulta SQL"):
+
+1. Copiarla en el editor SQL del ERP, entrando con la sociedad que corresponda.
+2. Cambiar solo las dos fechas (DD/MM/AAAA; la de hasta es inclusive).
+3. Ejecutarla y exportar el resultado a **Excel**.
+4. Arrastrar el Excel en la app.
+
+El Excel del ERP trae unos renglones de título y después la fila de
+encabezados: la app arranca en la fila que tiene la columna `CTG` y reconoce
+cada columna por el nombre, así que no importa el orden. También acepta el TXT
+que exporta el editor (ancho fijo, sin encabezado), leyéndolo por posición:
+eso solo funciona mientras la consulta no cambie, por eso conviene el Excel.
+
+## Paso 1 (alternativa) — los CTG con el script, en el servidor de Oracle
 
 El script no necesita instalar nada: usa solo la biblioteca estándar de
 Python 3.8+. Se copia `scripts/ctg_soja.py` y `scripts/Generar CTG.bat` a una

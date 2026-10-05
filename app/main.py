@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .config import BASE_DIR, config
+from .planillas import a_texto as planilla_a_texto, es_planilla
 from .visec import Fila, armar_fila, escribir
 from .wscpe import consultar
 
@@ -146,18 +147,48 @@ def _normalizar(nombre: str) -> str:
 # da un número de 80 cifras que ARCA rechaza o, peor, que pasa por bueno.
 CTG = re.compile(r"\d{11}")
 
+# Columnas del TXT que exporta el editor SQL del ERP con la consulta de
+# app/consultas/ingresos_erp.sql: (campo, desde, hasta). El editor exporta en
+# ancho fijo, sin encabezado ni separadores, y cada columna ocupa su tamaño
+# DECLARADO, no el largo del dato: TO_CHAR de un NUMBER mide 40, ROUND() 38, el
+# formato de fecha 19. Por eso las posiciones no cambian entre corridas, pero si
+# cambian si se toca la consulta. Si se la modifica, hay que medir de nuevo.
+ANCHO_FIJO_ERP = (
+    ("ctg", 0, 14),
+    ("numero_cpe", 14, 62),
+    ("fecha_movimiento", 62, 81),
+    ("peso_ingreso_stock", 81, 119),
+    ("kilos_estimados", 119, 157),
+    ("renspa", 157, 174),
+)
+FECHA_ERP = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
+
+
+def _es_ancho_fijo_erp(linea: str) -> bool:
+    """La linea tiene la forma del TXT de la consulta del ERP."""
+    return (
+        len(linea) >= 174
+        and CTG.fullmatch(linea[0:14].strip()) is not None
+        and FECHA_ERP.fullmatch(linea[62:81]) is not None
+    )
+
+
+def _leer_ancho_fijo_erp(linea: str) -> dict[str, str]:
+    return {campo: linea[desde:hasta].strip() for campo, desde, hasta in ANCHO_FIJO_ERP}
+
 
 def parsear_entrada(texto: str) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     """Devuelve [(ctg, datos_propios)] y los avisos del parseo.
 
     Acepta:
-    - una lista de CTG, uno por línea;
+    - el TXT que exporta el editor SQL del ERP con la consulta de
+      app/consultas/ingresos_erp.sql: ancho fijo, se lee por posición;
     - un archivo con encabezado y columnas separadas por `;`, tabulación o
-      coma: el CSV de `scripts/ctg_soja.py`, el TXT del query del ERP o la
-      grilla copiada con Ctrl+C. Las columnas se reconocen por el nombre;
-    - un archivo en ancho fijo, sin separadores: de ese solo se toma el CTG
-      del principio de cada línea, con un aviso, porque las demás columnas
-      pueden venir pegadas entre sí.
+      coma: el CSV de `scripts/ctg_soja.py` o la grilla copiada con Ctrl+C.
+      Las columnas se reconocen por el nombre;
+    - una lista de CTG, uno por línea;
+    - cualquier otro archivo sin separadores: de ese solo se toma el CTG del
+      principio de cada línea, con un aviso.
     """
     lineas = [l for l in texto.splitlines() if l.strip()]
     if not lineas:
@@ -165,6 +196,15 @@ def parsear_entrada(texto: str) -> tuple[list[tuple[str, dict[str, str]]], list[
 
     avisos: list[str] = []
     primera = lineas[0]
+
+    # TXT del editor del ERP: se lee por posicion. Va primero porque la fecha
+    # trae ':' y el RENSPA '/', pero ninguna de las dos es separador.
+    datos = lineas
+    if not CTG.match(primera.strip()) and "CTG" in primera.upper():
+        datos = lineas[1:]  # encabezado, si el editor lo exporta
+    if datos and all(_es_ancho_fijo_erp(l) for l in datos):
+        return _sin_repetidos([_leer_ancho_fijo_erp(l) for l in datos], avisos)
+
     delimitador = next((d for d in (";", "\t", ",") if d in primera), None)
     if delimitador:
         filas = list(csv.reader(lineas, delimiter=delimitador))
@@ -172,9 +212,9 @@ def parsear_entrada(texto: str) -> tuple[list[tuple[str, dict[str, str]]], list[
         filas = [l.split() for l in lineas]
         if any(len(f) > 1 for f in filas):
             avisos.append(
-                "El archivo no tiene columnas separadas: se tomaron solo los CTG, "
+                "El archivo no tiene la forma de la consulta del ERP: se tomaron solo los CTG, "
                 "y la fecha del movimiento, los pesos y el RENSPA salen de ARCA o quedan vacíos. "
-                "Usá el query con separador ';' para traerlos."
+                "Usá la consulta que se descarga desde esta pantalla, sin cambiarle las columnas."
             )
 
     columnas: dict[str, int] = {}
@@ -188,27 +228,35 @@ def parsear_entrada(texto: str) -> tuple[list[tuple[str, dict[str, str]]], list[
         columnas = {}
     columnas.setdefault("ctg", 0)
 
-    resultado: list[tuple[str, dict[str, str]]] = []
-    vistos: set[str] = set()
-    for numero, fila in enumerate(filas, start=1):
+    registros = []
+    for fila in filas:
         if not fila:
             continue
-        indice_ctg = columnas["ctg"]
-        crudo = fila[indice_ctg].strip() if indice_ctg < len(fila) else ""
-        if not CTG.fullmatch(crudo):
-            avisos.append(f"Línea {numero}: '{crudo[:30]}' no es un CTG (tienen 11 dígitos)")
+        registro = {
+            clave: fila[indice].strip()
+            for clave, indice in columnas.items()
+            if indice < len(fila) and fila[indice].strip()
+        }
+        registros.append(registro)
+    return _sin_repetidos(registros, avisos)
+
+
+def _sin_repetidos(
+    registros: list[dict[str, str]], avisos: list[str]
+) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
+    """Valida el CTG de cada registro y descarta los repetidos."""
+    resultado: list[tuple[str, dict[str, str]]] = []
+    vistos: set[str] = set()
+    for numero, registro in enumerate(registros, start=1):
+        ctg = registro.pop("ctg", "")
+        if not CTG.fullmatch(ctg):
+            avisos.append(f"Línea {numero}: '{ctg[:30]}' no es un CTG (tienen 11 dígitos)")
             continue
-        ctg = crudo
         if ctg in vistos:
             avisos.append(f"CTG {ctg}: repetido, se informa una sola vez")
             continue
         vistos.add(ctg)
-        propios = {
-            clave: fila[indice].strip()
-            for clave, indice in columnas.items()
-            if clave != "ctg" and indice < len(fila) and fila[indice].strip()
-        }
-        resultado.append((ctg, propios))
+        resultado.append((ctg, {k: v for k, v in registro.items() if v}))
     return resultado, avisos
 
 
@@ -260,12 +308,23 @@ async def generar(
     texto = ctgs or ""
     if archivo and archivo.filename:
         contenido = await archivo.read()
-        for codificacion in ("utf-8-sig", "latin-1"):
+        if es_planilla(contenido):
             try:
-                texto = contenido.decode(codificacion)
-                break
-            except UnicodeDecodeError:
-                continue
+                texto = planilla_a_texto(contenido)
+            except Exception as error:  # planilla dañada o de un formato raro
+                log.warning("No se pudo leer la planilla %s: %s", archivo.filename, error)
+                return plantillas.TemplateResponse(
+                    request, "index.html",
+                    _contexto(request, usuario, error=f"No se pudo leer la planilla: {error}"),
+                    status_code=400,
+                )
+        else:
+            for codificacion in ("utf-8-sig", "latin-1"):
+                try:
+                    texto = contenido.decode(codificacion)
+                    break
+                except UnicodeDecodeError:
+                    continue
 
     entradas, avisos_entrada = parsear_entrada(texto)
     if not entradas:
@@ -307,6 +366,18 @@ async def generar(
         _contexto(request, usuario, filas=filas, fallidos=fallidos,
                   avisos_entrada=avisos_entrada, archivo=nombre),
     )
+
+
+CONSULTA_INGRESOS = BASE_DIR / "consultas" / "ingresos_erp.sql"
+
+
+@app.get("/consulta/ingresos_erp.sql")
+def consulta_ingresos(request: Request):
+    """La consulta para el editor SQL del ERP, para que la descarguen los operarios."""
+    if not usuario_de(request):
+        raise HTTPException(status_code=401, detail="Sesión no válida")
+    return FileResponse(CONSULTA_INGRESOS, media_type="text/plain; charset=utf-8",
+                        filename="consulta_ingresos_visec.sql")
 
 
 @app.get("/egresos", response_class=HTMLResponse)
