@@ -141,41 +141,64 @@ def _normalizar(nombre: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", sin_tildes.strip().lower()).strip("_")
 
 
+# El CTG es un número de 11 dígitos. Validarlo evita inventar CTG: un archivo
+# en ancho fijo sin separadores, pasado por "sacar todo lo que no es dígito",
+# da un número de 80 cifras que ARCA rechaza o, peor, que pasa por bueno.
+CTG = re.compile(r"\d{11}")
+
+
 def parsear_entrada(texto: str) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     """Devuelve [(ctg, datos_propios)] y los avisos del parseo.
 
-    Acepta una lista de CTG (uno por línea) o el CSV que genera
-    `scripts/ctg_soja.py`, del que además toma la fecha del movimiento y el
-    peso que entró a stock.
+    Acepta:
+    - una lista de CTG, uno por línea;
+    - un archivo con encabezado y columnas separadas por `;`, tabulación o
+      coma: el CSV de `scripts/ctg_soja.py`, el TXT del query del ERP o la
+      grilla copiada con Ctrl+C. Las columnas se reconocen por el nombre;
+    - un archivo en ancho fijo, sin separadores: de ese solo se toma el CTG
+      del principio de cada línea, con un aviso, porque las demás columnas
+      pueden venir pegadas entre sí.
     """
     lineas = [l for l in texto.splitlines() if l.strip()]
     if not lineas:
         return [], []
 
+    avisos: list[str] = []
     primera = lineas[0]
-    delimitador = ";" if ";" in primera else ("\t" if "\t" in primera else ",")
-    filas = list(csv.reader(lineas, delimiter=delimitador))
+    delimitador = next((d for d in (";", "\t", ",") if d in primera), None)
+    if delimitador:
+        filas = list(csv.reader(lineas, delimiter=delimitador))
+    else:
+        filas = [l.split() for l in lineas]
+        if any(len(f) > 1 for f in filas):
+            avisos.append(
+                "El archivo no tiene columnas separadas: se tomaron solo los CTG, "
+                "y la fecha del movimiento, los pesos y el RENSPA salen de ARCA o quedan vacíos. "
+                "Usá el query con separador ';' para traerlos."
+            )
 
     columnas: dict[str, int] = {}
-    if filas and not re.fullmatch(r"\d{6,}", filas[0][0].strip()):
+    if delimitador and filas and not CTG.fullmatch(filas[0][0].strip()):
         for indice, nombre in enumerate(filas[0]):
             clave = ALIAS.get(_normalizar(nombre))
             if clave and clave not in columnas:
                 columnas[clave] = indice
         filas = filas[1:]
+    if not delimitador:
+        columnas = {}
     columnas.setdefault("ctg", 0)
 
     resultado: list[tuple[str, dict[str, str]]] = []
     vistos: set[str] = set()
-    avisos: list[str] = []
     for numero, fila in enumerate(filas, start=1):
         if not fila:
             continue
         indice_ctg = columnas["ctg"]
-        ctg = re.sub(r"\D", "", fila[indice_ctg] if indice_ctg < len(fila) else "")
-        if not ctg:
-            avisos.append(f"Línea {numero}: no se encontró un número de CTG ({fila[:3]})")
+        crudo = fila[indice_ctg].strip() if indice_ctg < len(fila) else ""
+        if not CTG.fullmatch(crudo):
+            avisos.append(f"Línea {numero}: '{crudo[:30]}' no es un CTG (tienen 11 dígitos)")
             continue
+        ctg = crudo
         if ctg in vistos:
             avisos.append(f"CTG {ctg}: repetido, se informa una sola vez")
             continue
