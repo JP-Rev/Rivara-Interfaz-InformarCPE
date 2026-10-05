@@ -8,11 +8,16 @@
 
 <form class="rv-card ic-tarjeta" method="post" action="/generar" enctype="multipart/form-data" id="formulario">
   <p class="ic-ayuda">
+    {% if modo == 'admin' %}
+    Arrastrá el CSV que genera <code>ctg_soja.py</code>, o el Excel del editor
+    SQL del ERP.
+    {% else %}
     Arrastrá el Excel que exporta el editor SQL del ERP con la consulta de
-    ingresos. Del archivo se toman los datos del sistema que no están en ARCA:
-    fecha del movimiento, peso que entró a stock, kilos estimados y RENSPA.
-    Todo lo demás —intervinientes, pesos de la carta, grano, campaña— lo trae
-    ARCA.
+    ingresos.
+    {% endif %}
+    Del archivo se toman los datos del sistema que no están en ARCA: fecha del
+    movimiento, peso que entró a stock, kilos estimados y RENSPA. Todo lo demás
+    —intervinientes, pesos de la carta, grano, campaña— lo trae ARCA.
   </p>
 
   {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
@@ -29,7 +34,7 @@
       </svg>
     </span>
     <span class="ic-soltar-texto">
-      <strong id="zona-titulo">Soltá acá el Excel de la consulta</strong>
+      <strong id="zona-titulo">{% if modo == 'admin' %}Soltá acá el CSV del script{% else %}Soltá acá el Excel de la consulta{% endif %}</strong>
       <small id="zona-detalle">o tocá para elegirlo — .xls, .xlsx, .txt o .csv</small>
     </span>
   </label>
@@ -54,6 +59,30 @@
   </div>
 </form>
 
+{% if modo == 'admin' %}
+<div class="rv-card ic-tarjeta">
+  <h3>Script con SQL*Plus</h3>
+  <p class="ic-ayuda">
+    Corre en el equipo que tiene SQL*Plus y consulta las tres sociedades en una
+    sola corrida. No necesita instalar nada: solo Python.
+  </p>
+  <ol class="ic-lista">
+    <li>Descargá el script y descomprimilo en una carpeta, por ejemplo
+        <code>C:\Users\JREALE\Desktop\Visec Informa CPE</code>.</li>
+    <li>La primera vez, ejecutalo: crea el <code>.env</code> con las claves de
+        Oracle vacías. Completalo con las mismas credenciales que
+        <code>cpe_bolsatech.py</code>.</li>
+    <li>Doble clic en <strong>Generar CTG.bat</strong>: pide las fechas y la sociedad
+        y deja el CSV en la misma carpeta.</li>
+    <li>Arrastrá ese CSV en el recuadro de arriba.</li>
+  </ol>
+  <pre class="ic-codigo">python ctg_soja.py --desde 2026-10-01 --hasta 2026-10-07
+python ctg_soja.py --desde 2026-10-01 --esquema SYSADMIN_PRA</pre>
+  <div class="ic-acciones">
+    <a class="rv-btn rv-btn--secundario" href="/script/ctg_soja.zip" download>Descargar el script (.zip)</a>
+  </div>
+</div>
+{% else %}
 <div class="rv-card ic-tarjeta">
   <h3>Cómo se saca el Excel del ERP</h3>
   <ol class="ic-lista">
@@ -72,6 +101,7 @@
     <a class="rv-btn rv-btn--secundario" href="/consulta/ingresos_erp.sql" download>Descargar la consulta SQL</a>
   </div>
 </div>
+{% endif %}
 
 <script>
   // Arrastrar y soltar sobre la zona, con el <input file> como respaldo: si el

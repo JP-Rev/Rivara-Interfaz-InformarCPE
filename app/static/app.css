@@ -159,6 +159,18 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 .ic-soltar-texto strong { font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
 .ic-soltar-texto small { font-size: 13px; color: var(--rv-texto-3); }
 
+/* ---- Elegir version ---- */
+
+.ic-opciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.ic-opcion { display: flex; flex-direction: column; gap: 10px; }
+.ic-opcion-nombre { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.ic-opcion-desc { font-size: 14px; font-weight: 600; color: var(--rv-texto-2); }
+
 /* ---- Resultado ---- */
 
 .ic-resumen { display: flex; flex-wrap: wrap; gap: 10px; }

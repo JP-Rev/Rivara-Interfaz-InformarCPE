@@ -17,6 +17,9 @@
     </span>
     <div class="ic-barra-acciones">
       {% if usuario and usuario.name %}<span class="rv-meta">{{ usuario.name }}</span>{% endif %}
+      {% if es_admin and modo %}
+        <a class="rv-btn rv-btn--fantasma" href="/modo/elegir">Versión {{ modo }} · Cambiar versión</a>
+      {% endif %}
       {% if portal_url %}
         <a class="rv-btn rv-btn--secundario" href="{{ portal_url }}">Volver al portal</a>
       {% endif %}

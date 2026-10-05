@@ -15,6 +15,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+# El script con SQL*Plus no corre en el contenedor: esta para que los admins lo
+# descarguen desde la app. Forma JSON porque el .bat tiene un espacio.
+COPY ["scripts/ctg_soja.py", "scripts/Generar CTG.bat", "./scripts/"]
 
 # Corre sin privilegios: solo lee los certificados y escribe en /data.
 # El UID queda fijo porque /storage/informarcpe del host tiene que ser suyo

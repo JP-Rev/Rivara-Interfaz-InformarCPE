@@ -7,6 +7,7 @@ ARCA y arma el XLSX con la plantilla de Visec.
 from __future__ import annotations
 
 import csv
+import io
 import logging
 from contextlib import asynccontextmanager
 import os
@@ -14,12 +15,13 @@ import re
 import time
 import unicodedata
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 import jwt
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -108,6 +110,30 @@ def url_portal(request: Request) -> str:
         return config.portal_url
     host = request.url.hostname
     return f"{request.url.scheme}://{host}:{config.portal_puerto}/" if host else ""
+
+
+# ---------------------------------------------------------------------------
+# Versiones operario / admin
+# ---------------------------------------------------------------------------
+
+# La version elegida por un admin. Es de esta app, no del portal: el rol viene
+# del portal (payload "role" del JWT), la preferencia se guarda aca.
+COOKIE_MODO = "informarcpe_modo"
+MODOS = ("operario", "admin")
+SCRIPTS_DIR = BASE_DIR.parent / "scripts"
+
+
+def es_admin(usuario: dict) -> bool:
+    """ADMIN en el portal. En desarrollo, sin sesion, se trata como admin."""
+    return config.auth_desactivada or usuario.get("role") == "ADMIN"
+
+
+def modo_de(request: Request, usuario: dict) -> str | None:
+    """'operario', 'admin', o None si un admin todavia no eligio."""
+    if not es_admin(usuario):
+        return "operario"
+    modo = request.cookies.get(COOKIE_MODO)
+    return modo if modo in MODOS else None
 
 
 def _sin_sesion(request: Request) -> RedirectResponse | HTTPException:
@@ -277,6 +303,9 @@ def _contexto(request: Request, usuario: dict, **extra) -> dict:
         "problemas": config.validar(),
         "max_ctg": MAX_CTG,
         "portal_url": url_portal(request),
+        "es_admin": es_admin(usuario),
+        # None mientras un admin no eligio: la barra no muestra "Versión ...".
+        "modo": modo_de(request, usuario),
         **extra,
     }
 
@@ -289,6 +318,8 @@ def inicio(request: Request):
         if isinstance(respuesta, HTTPException):
             raise respuesta
         return respuesta
+    if modo_de(request, usuario) is None:
+        return plantillas.TemplateResponse(request, "elegir.html", _contexto(request, usuario))
     return plantillas.TemplateResponse(request, "index.html", _contexto(request, usuario))
 
 
@@ -378,6 +409,43 @@ def consulta_ingresos(request: Request):
         raise HTTPException(status_code=401, detail="Sesión no válida")
     return FileResponse(CONSULTA_INGRESOS, media_type="text/plain; charset=utf-8",
                         filename="consulta_ingresos_visec.sql")
+
+
+@app.get("/modo/{modo}")
+def elegir_modo(request: Request, modo: str):
+    """Guarda la version elegida. 'elegir' borra la eleccion y vuelve a preguntar."""
+    usuario = usuario_de(request)
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesión no válida")
+    if not es_admin(usuario):
+        raise HTTPException(status_code=403, detail="Solo los administradores eligen versión")
+    respuesta = RedirectResponse("/", status_code=303)
+    if modo == "elegir":
+        respuesta.delete_cookie(COOKIE_MODO, path="/")
+    elif modo in MODOS:
+        respuesta.set_cookie(COOKIE_MODO, modo, max_age=365 * 24 * 3600,
+                             httponly=True, samesite="lax", path="/")
+    else:
+        raise HTTPException(status_code=404, detail="Versión desconocida")
+    return respuesta
+
+
+@app.get("/script/ctg_soja.zip")
+def descargar_script(request: Request):
+    """El script con SQL*Plus y su .bat, para los admins."""
+    usuario = usuario_de(request)
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesión no válida")
+    if not es_admin(usuario):
+        raise HTTPException(status_code=403, detail="Solo para administradores")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_:
+        zip_.write(SCRIPTS_DIR / "ctg_soja.py", "ctg_soja.py")
+        # El .bat va con fin de linea de Windows: cmd.exe se confunde con LF.
+        bat = (SCRIPTS_DIR / "Generar CTG.bat").read_text(encoding="utf-8")
+        zip_.writestr("Generar CTG.bat", bat.replace("\r\n", "\n").replace("\n", "\r\n"))
+    return Response(buffer.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="ctg_soja.zip"'})
 
 
 @app.get("/egresos", response_class=HTMLResponse)

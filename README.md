@@ -32,6 +32,23 @@ movimiento y el peso que entró a stock, que son de la balanza. Si en vez del CS
 se pega una lista pelada de CTG, esas dos columnas se completan con lo que haya
 en ARCA y la app lo avisa.
 
+## Versión operario y versión admin
+
+El rol sale del portal: la cookie de sesión `rivara_he` trae `role` (`ADMIN` u
+`OPERADOR`, según el "es admin" de cada usuario del portal). No hay una lista
+de usuarios propia de esta app: los permisos se administran en el portal.
+
+| | Operario | Admin |
+|---|---|---|
+| Quién | todo usuario del portal | los `ADMIN` del portal |
+| Archivo que se sube | Excel del editor SQL del ERP | CSV de `ctg_soja.py` (o el Excel) |
+| Descarga | la consulta SQL | el script con SQL\*Plus (`.zip` con `ctg_soja.py` y `Generar CTG.bat`) |
+
+Un admin elige la versión al entrar, y la elección queda guardada en una cookie
+de esta app (`informarcpe_modo`); se cambia con "Cambiar versión", arriba. El
+control es del lado del servidor: un operario que pida `/modo/admin` o
+`/script/ctg_soja.zip` recibe 403, aunque tenga la cookie de modo.
+
 ## Paso 1 — los CTG desde el editor SQL del ERP (operarios)
 
 La forma de todos los días. La consulta está en
