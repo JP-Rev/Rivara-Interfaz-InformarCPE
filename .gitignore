@@ -10,3 +10,7 @@ certs/
 *.p12
 scripts/*.csv
 app/static/fuentes/
+
+# Plantilla de Albor: trae datos de personas (choferes con CUIT). Se carga desde la app.
+ImportacionCosecha*.xlsx
+plantilla_cosecha.xlsx

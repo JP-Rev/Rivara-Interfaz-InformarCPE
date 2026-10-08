@@ -1,37 +1,79 @@
 {% extends "base.html" %}
 {% block titulo %}SoftCereal → Albor{% endblock %}
 
-{% block contenido %}
-<div class="ic-titulo">
-  <h2>Exportación de SoftCereal</h2>
-</div>
-
-<form class="rv-card ic-tarjeta" method="post" action="/albor" enctype="multipart/form-data" id="formulario">
-  <p class="ic-ayuda">
-    Arrastrá la exportación de ingresos de SoftCereal (el Excel del editor SQL).
-    La app arma la planilla de descargas de Albor con los pesos y las mermas de
-    destino de cada CPE, validados con las reglas de Albor: las filas que no
-    cumplen quedan afuera y se muestran, para que la importación no se rechace
-    entera.
-  </p>
-
-  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
-
-  <label class="ic-soltar" id="zona">
-    <input type="file" id="archivo" name="archivo" accept=".xlsx,.xls" required hidden>
+{% macro zona(nombre, titulo, detalle, aceptar) %}
+  <label class="ic-soltar" data-zona>
+    <input type="file" name="{{ nombre }}" accept="{{ aceptar }}" required hidden>
     <span class="rv-disco rv-disco--md" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 16V4M8 8l4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
       </svg>
     </span>
     <span class="ic-soltar-texto">
-      <strong id="zona-titulo">Soltá acá la exportación de SoftCereal</strong>
-      <small id="zona-detalle">o tocá para elegirla — .xlsx o .xls</small>
+      <strong data-titulo>{{ titulo }}</strong>
+      <small data-detalle>{{ detalle }}</small>
     </span>
   </label>
+{% endmacro %}
+
+{% block contenido %}
+<div class="ic-titulo">
+  <h2>Exportación de SoftCereal</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
+</div>
+
+<form class="rv-card ic-tarjeta" method="post" action="/albor" enctype="multipart/form-data" data-formulario>
+  <p class="ic-ayuda">
+    Arrastrá la exportación de ingresos de SoftCereal (el Excel del editor SQL).
+    La app arma la planilla de importación de cosechas de Albor. Lo que en
+    SoftCereal se llama distinto que en Albor (el campo y lote, la planta) se
+    confirma una sola vez y queda guardado para las próximas.
+  </p>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+  {% if not refs %}
+    <p class="rv-nota rv-nota--info">Antes hay que cargar la plantilla de importación de Albor (abajo).</p>
+  {% endif %}
+
+  {{ zona("archivo", "Soltá acá la exportación de SoftCereal", "o tocá para elegirla — .xlsx o .xls", ".xlsx,.xls") }}
 
   <div class="ic-acciones">
-    <button class="rv-btn rv-btn--primario" type="submit" id="enviar">Generar la planilla de Albor</button>
+    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Leyendo…" {% if not refs %}disabled{% endif %}>
+      Generar la planilla de Albor
+    </button>
+  </div>
+</form>
+
+<form class="rv-card ic-tarjeta" method="post" action="/albor/plantilla" enctype="multipart/form-data" data-formulario>
+  <h3>Plantilla de importación de Albor</h3>
+  {% if refs %}
+    <p class="ic-ayuda">
+      Cargada el {{ refs.cargada[:10] | replace('-', '/') }}.
+      Campañas en sus Referencias:
+      <strong>{% for c in refs.listas.campana %}{{ c.split(' - ')[0] }}{% if not loop.last %}, {% endif %}{% else %}ninguna{% endfor %}</strong>
+      · {{ refs.listas.cultivo | length }} cultivos · {{ refs.listas.deposito | length }} depósitos.
+    </p>
+    <p class="ic-ayuda">
+      Los códigos (cultivos, depósitos, transportistas) salen de la hoja
+      Referencias. Cuando en Albor se den de alta lotes o campañas nuevas, bajá
+      la plantilla de nuevo y cargala acá.
+    </p>
+  {% else %}
+    <p class="ic-ayuda">
+      En Albor, Comprobantes de Cosecha → importar, bajá la plantilla
+      (ImportacionCosecha.xlsx) y soltala acá. La app toma de ahí los códigos de
+      Albor; queda guardada en el servidor, no hace falta subirla cada vez.
+    </p>
+  {% endif %}
+  {% if error_plantilla %}<p class="rv-nota rv-nota--error">{{ error_plantilla }}</p>{% endif %}
+  {% if ok_plantilla %}<p class="rv-nota rv-nota--ok">{{ ok_plantilla }}</p>{% endif %}
+
+  {{ zona("archivo", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit" data-enviar="Cargando…">
+      {% if refs %}Reemplazar la plantilla{% else %}Cargar la plantilla{% endif %}
+    </button>
   </div>
 </form>
 
@@ -39,49 +81,51 @@
   <h3>Qué va en cada columna de Albor</h3>
   <div class="ic-tabla-scroll">
     <table class="rv-tabla">
-      <thead><tr><th>Albor</th><th>Sale de SoftCereal</th><th>Formato</th></tr></thead>
+      <thead><tr><th>Albor</th><th>Sale de SoftCereal</th></tr></thead>
       <tbody>
-        <tr><td>Tipo CP</td><td><code>E</code> (electrónica) en todas</td><td>C(1)</td></tr>
-        <tr><td>Sucursal CPE</td><td>Sucursal Interna CPE</td><td>N(5)</td></tr>
-        <tr><td>CTG</td><td>CTG</td><td>N(20)</td></tr>
-        <tr><td>CP</td><td>Número Interno CPE</td><td>N(15)</td></tr>
-        <tr><td>Flete Corto</td><td><code>N</code> en todas</td><td>C(1)</td></tr>
-        <tr><td>Bruto Destino</td><td>Peso Bruto Reconocido</td><td>N(8)</td></tr>
-        <tr><td>Tara Destino</td><td>Tara</td><td>N(8)</td></tr>
-        <tr><td>Porcentaje Humedad destino</td><td>Humedad</td><td>D(4,2)</td></tr>
-        <tr><td>Merma Humedad</td><td>Kilos de Merma Humedad</td><td>D(8,2)</td></tr>
-        <tr><td>Porcentaje Zaranda</td><td>Merma Zarandeo</td><td>D(4,2)</td></tr>
-        <tr><td>KG Zaranda</td><td>Kilos Merma Zarandeo</td><td>D(8,2)</td></tr>
-        <tr><td>Merma Kg Volatil</td><td>Merma Volátil</td><td>D(6,4)</td></tr>
-        <tr><td>Kg Volatil</td><td>Kilos Merma Volátil</td><td>D(8,2)</td></tr>
-        <tr><td>Otras mermas</td><td>vacío</td><td>D(8,2)</td></tr>
-        <tr><td>Factor</td><td>Factor</td><td>D(8,3)</td></tr>
-        <tr><td>Observaciones</td><td>Número de ingreso + Observaciones Orden de Carga</td><td>C(250)</td></tr>
+        <tr><td>Fecha, Fecha Partida</td><td>Fecha de la orden de carga</td></tr>
+        <tr><td>Número de ticket</td><td>Número de ticket</td></tr>
+        <tr><td>Código campaña</td><td>Cosecha (<code>2526</code> → <code>25/26</code>)</td></tr>
+        <tr><td>Código especie</td><td>Especie (equivalencia: <code>Soja ESP</code> → <code>SOJA ESPECIAL</code>)</td></tr>
+        <tr><td>Tipo de Grano</td><td>El único de Albor (<code>UNICO</code>)</td></tr>
+        <tr><td>Código cultivo</td><td>Campo-lote + especie + campaña (equivalencia)</td></tr>
+        <tr><td>Código depósito destino, Código destino</td><td>Planta (equivalencia)</td></tr>
+        <tr><td>Peso Estimado</td><td>Kilos Estimados</td></tr>
+        <tr><td>Peso Destino Bruto / Tara / Neto</td><td>Peso Bruto Reconocido / Tara / bruto − tara</td></tr>
+        <tr><td>% Humedad Destino</td><td>Humedad</td></tr>
+        <tr><td>Código transportista</td><td>Empresa de transporte, buscada por nombre en Albor</td></tr>
+        <tr><td>Chofer (CUIT)</td><td>DNI del conductor, buscado en los CUIT de Albor</td></tr>
+        <tr><td>Tipo CPE / Sucursal CPE / Carta de Porte / CTG</td><td><code>E</code> / Sucursal Interna CPE / Número Interno CPE / CTG</td></tr>
+        <tr><td>Distancia Planta</td><td>Kilómetros Acarreo</td></tr>
+        <tr><td>Tipo de Flete · Flete Corto · Obtener CTG · Obtener COT</td><td><code>T</code> · <code>No</code> · <code>No</code> · <code>No</code></td></tr>
+        <tr><td>Observaciones remitente</td><td>Número de ingreso + Observaciones Orden de Carga</td></tr>
+        <tr><td>Código tipo de comprobante, Código socio, resto</td><td>vacío (el tipo de comprobante se carga a mano en Albor)</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
 <script>
-  const zona = document.getElementById('zona')
-  const archivo = document.getElementById('archivo')
-  const mostrar = (a) => {
-    if (!a) return
-    zona.classList.add('ic-soltar--cargado')
-    document.getElementById('zona-titulo').textContent = a.name
-    document.getElementById('zona-detalle').textContent = `${Math.max(1, Math.round(a.size / 1024))} kB — tocá para cambiarla`
-  }
-  archivo.addEventListener('change', () => mostrar(archivo.files[0]))
-  ;['dragenter', 'dragover'].forEach((ev) => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('ic-soltar--encima') }))
-  ;['dragleave', 'dragend'].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove('ic-soltar--encima')))
-  zona.addEventListener('drop', (e) => {
-    e.preventDefault(); zona.classList.remove('ic-soltar--encima')
-    const a = e.dataTransfer.files[0]; if (!a) return
-    const lista = new DataTransfer(); lista.items.add(a); archivo.files = lista.files; mostrar(a)
+  document.querySelectorAll('[data-zona]').forEach((zona) => {
+    const archivo = zona.querySelector('input[type=file]')
+    const mostrar = (a) => {
+      if (!a) return
+      zona.classList.add('ic-soltar--cargado')
+      zona.querySelector('[data-titulo]').textContent = a.name
+      zona.querySelector('[data-detalle]').textContent = `${Math.max(1, Math.round(a.size / 1024))} kB — tocá para cambiarlo`
+    }
+    archivo.addEventListener('change', () => mostrar(archivo.files[0]))
+    ;['dragenter', 'dragover'].forEach((ev) => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('ic-soltar--encima') }))
+    ;['dragleave', 'dragend'].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove('ic-soltar--encima')))
+    zona.addEventListener('drop', (e) => {
+      e.preventDefault(); zona.classList.remove('ic-soltar--encima')
+      const a = e.dataTransfer.files[0]; if (!a) return
+      const lista = new DataTransfer(); lista.items.add(a); archivo.files = lista.files; mostrar(a)
+    })
   })
-  ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!zona.contains(e.target)) e.preventDefault() }))
-  document.getElementById('formulario').addEventListener('submit', () => {
-    const b = document.getElementById('enviar'); b.disabled = true; b.textContent = 'Generando…'
-  })
+  ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!e.target.closest('[data-zona]')) e.preventDefault() }))
+  document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', () => {
+    const b = f.querySelector('[data-enviar]'); b.disabled = true; b.textContent = b.dataset.enviar
+  }))
 </script>
 {% endblock %}

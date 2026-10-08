@@ -23,6 +23,9 @@
       <span class="ic-resumen-etiqueta">CTG repetidos</span>
     </div>
   </div>
+  <div class="ic-acciones">
+    <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Revisar equivalencias</a>
+  </div>
 
   {% if archivo %}
     <div class="ic-acciones">
@@ -35,7 +38,7 @@
         volvé a exportar, o cargalas a mano en Albor.
       </p>
     {% else %}
-      <p class="rv-nota rv-nota--ok">Todas las filas pasaron las validaciones de Albor.</p>
+      <p class="rv-nota rv-nota--ok">Todas las filas pasaron las validaciones.</p>
     {% endif %}
   {% else %}
     <p class="rv-nota rv-nota--error">Ninguna fila pasó las validaciones, así que no hay planilla.</p>
@@ -63,6 +66,14 @@
 </div>
 {% endif %}
 
+{% if resultado.avisos %}
+<div class="rv-card ic-tarjeta">
+  <h3>Avisos</h3>
+  <p class="ic-ayuda">Estas filas sí están en la planilla, con ese dato vacío.</p>
+  <ul class="ic-lista">{% for aviso, cantidad in resultado.avisos.items() %}<li>{{ aviso }} — {{ cantidad }} fila{{ 's' if cantidad != 1 }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
 {% if resultado.repetidos %}
 <div class="rv-card ic-tarjeta">
   <h3>CTG repetidos</h3>
@@ -78,7 +89,7 @@
       <thead><tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
       <tbody>
         {% for f in resultado.validas[:15] %}
-        <tr>{% for c in columnas %}<td class="rv-num">{{ '' if f.valores[c] is none else f.valores[c] }}</td>{% endfor %}</tr>
+        <tr>{% for c in columnas %}<td>{{ f.valores[c] }}</td>{% endfor %}</tr>
         {% endfor %}
       </tbody>
     </table>

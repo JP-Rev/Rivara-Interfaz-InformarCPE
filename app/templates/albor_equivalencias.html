@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block titulo %}Equivalencias SoftCereal → Albor{% endblock %}
+
+{% block contenido %}
+<div class="ic-titulo">
+  <h2>{% if tanda %}Confirmá las equivalencias{% else %}Equivalencias guardadas{% endif %}</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/albor">Volver</a>
+</div>
+
+<form class="rv-card ic-tarjeta" method="post" action="/albor/equivalencias">
+  <input type="hidden" name="tanda" value="{{ tanda }}">
+  {% if tanda %}
+    <p class="ic-ayuda">
+      {% if origen %}En <strong>{{ origen }}</strong> hay{% else %}Hay{% endif %}
+      nombres de SoftCereal que todavía no tienen su código de Albor. Elegilo
+      de la lista (se puede escribir para buscar) o escribí el código. Queda
+      guardado: la próxima vez no se pregunta.
+    </p>
+    <p class="rv-nota rv-nota--info">
+      Lo que viene completado es una sugerencia: revisala antes de confirmar.
+      Lo obligatorio que quede vacío deja esas filas afuera de la planilla.
+    </p>
+  {% else %}
+    <p class="ic-ayuda">
+      Lo que la app ya sabe traducir. Para corregir una, cambiá el valor; para
+      borrarla, dejala vacía (se va a volver a preguntar).
+    </p>
+    {% if request.query_params.get('ok') %}<p class="rv-nota rv-nota--ok">Equivalencias guardadas.</p>{% endif %}
+    {% if not grupos %}<p class="rv-nota rv-nota--info">Todavía no hay ninguna.</p>{% endif %}
+  {% endif %}
+
+  {% set n = namespace(i=0) %}
+  {% for g in grupos %}
+    <h3>{{ g.titulo }}{% if not g.obligatoria %} <small class="rv-meta">(opcional)</small>{% endif %}</h3>
+    <datalist id="lista-{{ g.tipo }}">
+      {% for o in listas[g.lista] %}<option value="{{ o }}"></option>{% endfor %}
+    </datalist>
+    <div class="ic-tabla-scroll">
+      <table class="rv-tabla ic-equivalencias">
+        <thead><tr><th>SoftCereal</th>{% if tanda %}<th>Filas</th>{% endif %}<th>Albor</th></tr></thead>
+        <tbody>
+          {% for item in g.entradas %}
+            {% set n.i = n.i + 1 %}
+            <tr>
+              <td><label for="v{{ n.i }}">{{ item.clave }}</label></td>
+              {% if tanda %}<td class="rv-num">{{ item.filas }}</td>{% endif %}
+              <td>
+                <input type="hidden" name="k{{ n.i }}" value="{{ g.tipo }}::{{ item.clave }}">
+                <input class="rv-input" id="v{{ n.i }}" name="v{{ n.i }}" list="lista-{{ g.tipo }}"
+                       value="{{ item.sugerencia }}" autocomplete="off" placeholder="Código o nombre en Albor">
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+
+  {% if grupos %}
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit">
+      {% if tanda %}Guardar y generar la planilla{% else %}Guardar los cambios{% endif %}
+    </button>
+  </div>
+  {% endif %}
+</form>
+{% endblock %}

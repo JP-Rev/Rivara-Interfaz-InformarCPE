@@ -321,33 +321,74 @@ distinta.
 ## Importar CPE SoftCereal → Albor
 
 Segunda sección del menú lateral, para todos los usuarios. Toma la exportación
-de ingresos de SoftCereal (el Excel del editor SQL) y arma
-`DESCARGA_CP_Albor.xlsx` (hoja **Padron**) para importar en Albor los pesos y
-mermas de destino de cada CPE. La plantilla está en `app/plantilla_albor.xlsx`
-y la hoja **Referencias** viaja intacta.
+de ingresos de SoftCereal (el Excel del editor SQL) y arma la planilla de
+**importación de comprobantes de cosecha** de Albor (`ImportacionCosecha.xlsx`,
+hoja **Cosechas a importar**).
 
-Las reglas salen de esa hoja Referencias: `C(x)` texto de hasta x caracteres,
-`N(x)` entero de hasta x dígitos, `D(x,y)` número con y decimales, y para Tipo
-CP `E` hace falta el CTG o, si no, Sucursal + CP. Además se controla que la tara
-sea menor que el bruto. **Una fila que no cumple queda afuera y se muestra**:
-Albor rechaza la importación entera por una fila mal armada.
+### La plantilla de Albor
+
+Se baja de Albor y se carga desde la misma pantalla. Queda en
+`/storage/informarcpe/albor/plantilla_cosecha.xlsx`. **No va en el repositorio**:
+su hoja **Referencias** trae las listas de códigos de Albor (cultivos,
+depósitos, transportistas, choferes con su CUIT), y son datos de personas. La
+app lee esas listas una vez al cargarla (`referencias.json`) y en cada
+conversión copia la plantilla cambiando solo la hoja de datos: Referencias viaja
+intacta.
+
+Cuando en Albor se den de alta lotes o una campaña nueva, se baja la plantilla
+de nuevo y se reemplaza.
+
+### Equivalencias
+
+Lo que SoftCereal y Albor llaman distinto se traduce con una tabla que se
+confirma una sola vez y queda en `/storage/informarcpe/albor/equivalencias.json`:
+
+| Tipo | Clave de SoftCereal | Ejemplo en Albor |
+|---|---|---|
+| Especie | `Soja ESP` | `1114 - SOJA ESPECIAL` (se resuelve sola si el nombre coincide) |
+| Cultivo | `El Bagual-lote 15 \| Soja ESP \| 25/26` | `02836 - El Bagual LTV 15 SOJA ESP 25/26` |
+| Depósito destino | `Planta 16` | `PSA - Planta Alberti` |
+| Destino (opcional) | `Planta 16` | `8 - Planta Alberti` |
+
+Si al convertir aparece algo sin equivalencia, la app la pide antes de armar la
+planilla, con una sugerencia cuando hay una segura: misma campaña y especie,
+mismo campo y mismos números de lote. Se puede elegir de la lista o escribir el
+código directamente. Se revisan y corrigen en **Equivalencias**
+(`/albor/equivalencias`).
+
+### Columnas
 
 | Albor | SoftCereal |
 |---|---|
-| Tipo CP | `E` en todas |
-| Sucursal CPE / CP | Sucursal Interna CPE / Número Interno CPE |
-| CTG | CTG |
-| Flete Corto | `N` en todas |
-| Bruto Destino / Tara Destino | Peso Bruto Reconocido / Tara |
-| Porcentaje Humedad destino / Merma Humedad | Humedad / Kilos de Merma Humedad |
-| Porcentaje Zaranda / KG Zaranda | Merma Zarandeo / Kilos Merma Zarandeo |
-| Merma Kg Volatil / Kg Volatil | Merma Volátil / Kilos Merma Volátil |
-| Otras mermas | vacío |
-| Factor | Factor |
-| Observaciones | número de ingreso + Observaciones Orden de Carga |
+| Fecha, Fecha Partida | Fecha Hora Orden de Carga |
+| Número de ticket | NUMERO_TICKET |
+| Código campaña | Cosecha (`2526` → `25/26`) |
+| Código especie, Código cultivo | equivalencias |
+| Tipo de Grano | el único que tiene Albor (`00001`) |
+| Código depósito destino, Código destino | equivalencias por Planta |
+| Peso Estimado | Kilos Estimados |
+| Peso Destino Bruto / Tara / Neto | Peso Bruto Reconocido / Tara / bruto − tara |
+| % Humedad Destino | Humedad |
+| Código transportista | Nombre Empresa de Transporte, buscado en la lista de Albor |
+| Chofer (CUIT) | Carnet Conductor (DNI), buscado dentro de los CUIT de Albor |
+| Tipo CPE / Sucursal CPE / Carta de Porte / CTG | `E` / Sucursal Interna CPE / Número Interno CPE / CTG |
+| Distancia Planta | Kilómetros Acarreo |
+| Tipo de Flete, Flete Corto, Obtener CTG, Obtener COT | `T`, `No`, `No`, `No` (la CPE ya existe en ARCA) |
+| Observaciones remitente | número de ingreso + Observaciones Orden de Carga |
+| Código tipo de comprobante, Código socio y el resto | vacío |
 
-Las columnas de SoftCereal se buscan por nombre, así que no importa el orden de
-la exportación. El mapeo está en `FUENTES` de `app/albor.py`.
+Una fila sin CTG válido, sin fecha, con tara mayor o igual al bruto o sin
+especie, cultivo o depósito queda afuera y se muestra. Un transportista o chofer
+que no está en Albor no frena la fila: va vacío y se avisa.
+
+Formato de los valores, ajustable en el `.env` si Albor los rechaza:
+
+| Variable | Default | Qué cambia |
+|---|---|---|
+| `ALBOR_SOLO_CODIGO` | `1` | `1`: `02836`; `0`: `02836 - El Bagual LTV 15 ...` |
+| `ALBOR_SEPARADOR_DECIMAL` | `,` | humedad `12,8` o `12.8` |
+| `ALBOR_FORMATO_FECHA` | `%d/%m/%Y` | fechas |
+| `ALBOR_TIPO_FLETE` | `T` | `T` Tercero, `I` Interno |
 
 ## Qué columnas completa, y de dónde
 

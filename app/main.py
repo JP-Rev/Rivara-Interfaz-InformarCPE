@@ -69,7 +69,8 @@ def purgar(carpeta: Path, patron: str, dias: int) -> int:
 
 def purgar_todo() -> None:
     purgar(SALIDA_DIR, "visec_cpe_*.xlsx", RETENCION_SALIDA_DIAS)
-    purgar(SALIDA_DIR, "albor_cp_*.xlsx", RETENCION_SALIDA_DIAS)
+    purgar(SALIDA_DIR, "albor_cosecha_*.xlsx", RETENCION_SALIDA_DIAS)
+    purgar(SALIDA_DIR, "albor_cp_*.xlsx", RETENCION_SALIDA_DIAS)  # de la versión anterior
     purgar(config.cache_dir / "respuestas", "cpe_*.json", RETENCION_RESPUESTAS_DIAS)
 
 
@@ -562,12 +563,41 @@ def _con_sesion(request: Request) -> dict | RedirectResponse:
     return respuesta
 
 
+def _pagina_albor(request: Request, usuario: dict, status_code: int = 200, **extra):
+    return plantillas.TemplateResponse(
+        request, "albor.html",
+        _contexto(request, usuario, seccion="albor", refs=albor.referencias(),
+                  equivalencias=albor.equivalencias(), **extra),
+        status_code=status_code,
+    )
+
+
 @app.get("/albor", response_class=HTMLResponse)
 def ver_albor(request: Request):
     usuario = _con_sesion(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
-    return plantillas.TemplateResponse(request, "albor.html", _contexto(request, usuario, seccion="albor"))
+    return _pagina_albor(request, usuario)
+
+
+@app.post("/albor/plantilla", response_class=HTMLResponse)
+async def subir_plantilla_albor(request: Request, archivo: UploadFile = File(...)):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    contenido = await archivo.read()
+    if not contenido.startswith(b"PK\x03\x04"):
+        return _pagina_albor(request, usuario, 400, error_plantilla="La plantilla de Albor tiene que ser un .xlsx.")
+    try:
+        refs = await asyncio.to_thread(albor.guardar_plantilla, contenido)
+    except albor.ErrorArchivo as e:
+        return _pagina_albor(request, usuario, 400, error_plantilla=str(e))
+    except Exception as e:
+        log.warning("No se pudo leer la plantilla de Albor %s: %s", archivo.filename, e)
+        return _pagina_albor(request, usuario, 400, error_plantilla=f"No se pudo leer la plantilla: {e}")
+    log.info("Usuario %s cargó la plantilla de Albor %s", usuario.get("email") or usuario.get("name"), archivo.filename)
+    campanas = ", ".join(albor.codigo(c) for c in refs["listas"]["campana"]) or "ninguna"
+    return _pagina_albor(request, usuario, ok_plantilla=f"Plantilla cargada. Campañas en sus Referencias: {campanas}.")
 
 
 @app.post("/albor", response_class=HTMLResponse)
@@ -575,35 +605,100 @@ async def generar_albor(request: Request, archivo: UploadFile = File(...)):
     usuario = _con_sesion(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
-
-    def error(mensaje: str):
-        return plantillas.TemplateResponse(
-            request, "albor.html", _contexto(request, usuario, seccion="albor", error=mensaje), status_code=400,
-        )
-
+    refs = albor.referencias()
+    if not refs:
+        return _pagina_albor(request, usuario, 400, error="Primero cargá la plantilla de importación de Albor.")
     contenido = await archivo.read()
     if not es_planilla(contenido):
-        return error("El archivo no es un Excel. Subí la exportación de SoftCereal en .xlsx o .xls.")
+        return _pagina_albor(request, usuario, 400, error="El archivo no es un Excel. Subí la exportación de SoftCereal en .xlsx o .xls.")
     try:
-        resultado = albor.convertir(filas_planilla(contenido))
+        ingresos = albor.leer_softcereal(filas_planilla(contenido))
     except albor.ErrorArchivo as e:
-        return error(str(e))
+        return _pagina_albor(request, usuario, 400, error=str(e))
     except Exception as e:  # planilla dañada o de un formato raro
         log.warning("No se pudo leer %s: %s", archivo.filename, e)
-        return error(f"No se pudo leer la planilla: {e}")
+        return _pagina_albor(request, usuario, 400, error=f"No se pudo leer la planilla: {e}")
+    tanda = albor.guardar_tanda(ingresos, archivo.filename or "")
+    return _seguir_tanda(request, usuario, tanda)
 
+
+def _seguir_tanda(request: Request, usuario: dict, tanda: str):
+    """Si faltan equivalencias, las pide; si no, arma la planilla."""
+    datos = albor.leer_tanda(tanda)
+    refs = albor.referencias()
+    if not datos or not refs:
+        return _pagina_albor(request, usuario, 400, error="La tanda venció o falta la plantilla: volvé a subir el archivo.")
+    faltan = albor.pendientes(datos["ingresos"], refs)
+    if faltan:
+        return plantillas.TemplateResponse(
+            request, "albor_equivalencias.html",
+            _contexto(request, usuario, seccion="albor", tanda=tanda, origen=datos["origen"],
+                      grupos=_grupos_equivalencias({t: faltan[t] for t in faltan}), listas=refs["listas"]),
+        )
+    resultado = albor.convertir(datos["ingresos"], refs)
     nombre = ""
     if resultado.validas:
         purgar_todo()
-        nombre = f"albor_cp_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}.xlsx"
-        albor.escribir(resultado.validas, SALIDA_DIR / nombre)
-    log.info("Usuario %s convirtió %s filas de SoftCereal a Albor (%s con error)",
+        nombre = f"albor_cosecha_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}.xlsx"
+        albor.escribir(resultado.validas, refs, SALIDA_DIR / nombre)
+    log.info("Usuario %s convirtió %s ingresos de SoftCereal a Albor (%s con error)",
              usuario.get("email") or usuario.get("name"), len(resultado.filas), len(resultado.con_error))
     return plantillas.TemplateResponse(
         request, "albor_resultado.html",
         _contexto(request, usuario, seccion="albor", resultado=resultado, archivo=nombre,
-                  origen=archivo.filename, columnas=albor.NOMBRES),
+                  origen=datos["origen"], columnas=albor.COLUMNAS_USADAS),
     )
+
+
+def _grupos_equivalencias(items: dict[str, list[dict]]) -> list[dict]:
+    """Para el formulario: un grupo por tipo, en el orden de TIPOS_EQUIVALENCIA."""
+    return [
+        {"tipo": tipo, "titulo": titulo, "lista": lista, "obligatoria": obligatoria, "entradas": items[tipo]}
+        for tipo, titulo, lista, obligatoria in albor.TIPOS_EQUIVALENCIA if items.get(tipo)
+    ]
+
+
+@app.get("/albor/equivalencias", response_class=HTMLResponse)
+def ver_equivalencias(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    refs = albor.referencias() or {"listas": {clave: [] for clave in albor.LISTAS}}
+    guardadas = albor.equivalencias()
+    items = {
+        tipo: [{"clave": k, "sugerencia": v, "filas": None} for k, v in sorted(guardadas[tipo].items())]
+        for tipo in guardadas
+    }
+    return plantillas.TemplateResponse(
+        request, "albor_equivalencias.html",
+        _contexto(request, usuario, seccion="albor", tanda="", grupos=_grupos_equivalencias(items),
+                  listas=refs["listas"]),
+    )
+
+
+@app.post("/albor/equivalencias", response_class=HTMLResponse)
+async def guardar_equivalencias(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    formulario = await request.form()
+    tipos = {t for t, *_ in albor.TIPOS_EQUIVALENCIA}
+    nuevas: dict[str, dict[str, str]] = {}
+    for nombre, valor in formulario.items():
+        m = re.fullmatch(r"k(\d+)", nombre)
+        if not m:
+            continue
+        tipo, _, clave_eq = str(valor).partition("::")
+        if tipo in tipos and clave_eq:
+            nuevas.setdefault(tipo, {})[clave_eq] = str(formulario.get(f"v{m.group(1)}", ""))
+    tanda = str(formulario.get("tanda", ""))
+    if tanda:
+        # En una tanda, lo que se deja vacío queda pendiente: no se borra nada.
+        nuevas = {t: {k: v for k, v in vals.items() if v.strip()} for t, vals in nuevas.items()}
+    albor.guardar_equivalencias(nuevas)
+    if tanda:
+        return _seguir_tanda(request, usuario, tanda)
+    return RedirectResponse("/albor/equivalencias?ok=1", status_code=303)
 
 
 @app.get("/egresos", response_class=HTMLResponse)
@@ -623,7 +718,7 @@ def descargar(request: Request, nombre: str):
     if not usuario_de(request):
         raise HTTPException(status_code=401, detail="Sesión no válida")
     # El nombre lo genera la app, pero igual se valida: viene por la URL.
-    if not re.fullmatch(r"(visec_cpe|albor_cp)_[0-9_a-f]+\.xlsx", nombre):
+    if not re.fullmatch(r"(visec_cpe|albor_cosecha)_[0-9_a-f]+\.xlsx", nombre):
         raise HTTPException(status_code=400, detail="Nombre de archivo inválido")
     ruta = SALIDA_DIR / nombre
     if not ruta.is_file():

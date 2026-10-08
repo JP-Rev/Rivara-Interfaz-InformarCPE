@@ -1,223 +1,515 @@
-"""SoftCereal -> Albor: arma la planilla de importación de descargas de Albor
-(DESCARGA_CP_Albor.xlsx, hoja "Padron") a partir de la exportación de ingresos
-a planta de SoftCereal.
+"""SoftCereal -> Albor: arma la planilla de importación de comprobantes de
+cosecha de Albor (ImportacionCosecha.xlsx, hoja "Cosechas a importar") a
+partir de la exportación de ingresos a planta de SoftCereal.
 
-Las reglas salen de la hoja "Referencias" de la propia plantilla de Albor:
+La plantilla la baja cada uno de Albor y se sube a la app: trae la hoja
+"Referencias" con las listas de códigos de Albor (campañas, especies, cultivos,
+depósitos, transportistas, choferes...). No va en el repositorio: tiene nombres
+y CUIT de personas.
 
-  C(x)    texto de hasta x caracteres
-  N(x)    entero de hasta x dígitos
-  D(x,y)  número de hasta x dígitos, y de ellos decimales
-
-  Tipo CP E: hace falta el CTG, o si no, Sucursal + CP.
-  Tipo CP M: hace falta el CP.
-
-Una fila que no cumple no va al archivo: Albor rechaza la importación entera
-por una fila mal armada, así que es mejor dejarla afuera y mostrarla.
+Lo que SoftCereal llama de una forma y Albor de otra (el lote "El Bagual-lote
+15" de soja ESP 25/26 es el cultivo "02836 - El Bagual LTV 15 SOJA ESP 26/27")
+se resuelve con una tabla de equivalencias: la app sugiere, el usuario confirma
+una vez, y queda guardada para las próximas.
 """
 
 from __future__ import annotations
 
+import difflib
+import io
+import json
+import os
 import re
 import unicodedata
+import uuid
+import zipfile
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from xml.sax.saxutils import escape
 
-from openpyxl import load_workbook
+ALBOR_DIR = Path(os.getenv("ALBOR_DIR", "/data/albor"))
+PLANTILLA = ALBOR_DIR / "plantilla_cosecha.xlsx"
+REFERENCIAS = ALBOR_DIR / "referencias.json"     # las listas, leídas una vez al subir la plantilla
+EQUIVALENCIAS = ALBOR_DIR / "equivalencias.json"
+TANDAS = ALBOR_DIR / "tandas"                    # filas leídas, esperando equivalencias
+RETENCION_TANDAS = timedelta(days=2)
 
-from .config import BASE_DIR
+HOJA_DATOS = "Cosechas a importar"
+HOJA_REFERENCIAS = "Referencias"
 
-PLANTILLA_ALBOR = BASE_DIR / "plantilla_albor.xlsx"
-HOJA = "Padron"
+# Cómo se escriben los valores. Todas las celdas de la plantilla son texto.
+# Si Albor rechaza los códigos o los decimales, se cambia en el .env.
+SOLO_CODIGO = os.getenv("ALBOR_SOLO_CODIGO", "1") != "0"   # "02836" o "02836 - El Bagual..."
+SEPARADOR_DECIMAL = os.getenv("ALBOR_SEPARADOR_DECIMAL", ",")
+FORMATO_FECHA = os.getenv("ALBOR_FORMATO_FECHA", "%d/%m/%Y")
+TIPO_FLETE = os.getenv("ALBOR_TIPO_FLETE", "T")             # T Tercero, I Interno
 
-# (columna de Albor, formato de la hoja Referencias)
-COLUMNAS = [
-    ("Tipo CP", "C1"),
-    ("Sucursal CPE", "N5"),
-    ("CTG", "N20"),
-    ("CP", "N15"),
-    ("Flete Corto", "C1"),
-    ("Bruto Destino", "N8"),
-    ("Tara Destino", "N8"),
-    ("Porcentaje Humedad destino", "D4,2"),
-    ("Merma Humedad", "D8,2"),
-    ("Porcentaje Zaranda", "D4,2"),
-    ("KG Zaranda", "D8,2"),
-    ("Merma Kg Volatil", "D6,4"),
-    ("Kg Volatil", "D8,2"),
-    ("Otras mermas", "D8,2"),
-    ("Factor", "D8,3"),
-    ("Observaciones", "C250"),
-]
-NOMBRES = [nombre for nombre, _ in COLUMNAS]
-
-
-# ---------------------------------------------------------------------------
-# Columnas de la exportación de SoftCereal
-# ---------------------------------------------------------------------------
-
-def _normalizar(nombre: str) -> str:
-    sin_tildes = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "_", sin_tildes.strip().lower()).strip("_")
-
-
-# Campo interno -> nombres posibles del encabezado de SoftCereal (normalizados).
-# "Sucursar Interna CPE" viene así, con el error de tipeo, del ERP.
-FUENTES = {
-    "ctg": ["ctg"],
-    "sucursal": ["sucursar_interna_cpe", "sucursal_interna_cpe"],
-    "numero_cpe": ["numero_interno_cpe"],
-    "bruto": ["peso_bruto_reconocido", "peso_bruto_acopio"],
-    "tara": ["tara"],
-    "humedad": ["humedad"],
-    "kg_humedad": ["kilos_de_merma_humedad"],
-    "pct_zaranda": ["merma_zarandeo"],
-    "kg_zaranda": ["kilos_merma_zarandeo"],
-    "pct_volatil": ["merma_volatil"],
-    "kg_volatil": ["kilos_merma_volatil"],
-    "factor": ["factor"],
-    "ingreso": ["numero_ingreso"],
-    "observaciones": ["observaciones_orden_de_carga"],
+# Listas de la hoja Referencias que usa la conversión: nombre en la app -> columna.
+LISTAS = {
+    "campana": "Código campaña",
+    "especie": "Código especie",
+    "grano": "Tipo de Grano",
+    "cultivo": "Código cultivo",
+    "deposito": "Código depósito",
+    "destino": "Código destino",
+    "transportista": "Código transportista",
+    "chofer": "Chofer (CUIT)",
+    "flete": "Tipo de Flete",
 }
-# Sin estas no se puede armar ninguna fila.
-OBLIGATORIAS = ["ctg", "bruto", "tara"]
+
+# Equivalencias que se confirman a mano: (tipo, título, lista de Referencias, obligatoria)
+TIPOS_EQUIVALENCIA = [
+    ("especie", "Especie", "especie", True),
+    ("cultivo", "Cultivo (campo y lote)", "cultivo", True),
+    ("deposito", "Depósito destino (por planta de SoftCereal)", "deposito", True),
+    ("destino", "Destino (por planta de SoftCereal)", "destino", False),
+]
 
 
 class ErrorArchivo(ValueError):
     pass
 
 
+def _normalizar(texto: str) -> str:
+    sin_tildes = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", " ", sin_tildes.lower()).strip()
+
+
+def codigo(valor: str) -> str:
+    """'02836 - El Bagual LTV 15 SOJA ESP 26/27' -> '02836'."""
+    return valor.split(" - ", 1)[0].strip() if " - " in valor else valor.strip()
+
+
+def _valor_lista(valor: str) -> str:
+    return codigo(valor) if SOLO_CODIGO else valor.strip()
+
+
+# ---------------------------------------------------------------------------
+# Plantilla de Albor y sus referencias
+# ---------------------------------------------------------------------------
+
+def _rutas_hojas(libro: zipfile.ZipFile) -> dict[str, str]:
+    """Nombre de hoja -> ruta del XML dentro del xlsx."""
+    workbook = libro.read("xl/workbook.xml").decode("utf-8-sig")
+    rels = libro.read("xl/_rels/workbook.xml.rels").decode("utf-8-sig")
+    destinos = {
+        m.group("id"): m.group("dst")
+        for m in re.finditer(r'<(?:\w+:)?Relationship\b(?=[^>]*\bId="(?P<id>[^"]+)")(?=[^>]*\bTarget="(?P<dst>[^"]+)")', rels)
+    }
+    rutas = {}
+    for m in re.finditer(r'<(?:\w+:)?sheet\b(?=[^>]*\bname="(?P<n>[^"]+)")(?=[^>]*\br:id="(?P<id>[^"]+)")', workbook):
+        destino = destinos.get(m.group("id"), "")
+        destino = destino.lstrip("/")
+        rutas[_desescapar(m.group("n"))] = destino if destino.startswith("xl/") else f"xl/{destino}"
+    return rutas
+
+
+def _desescapar(texto: str) -> str:
+    return (texto.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+            .replace("&apos;", "'").replace("&amp;", "&"))
+
+
+def leer_plantilla(contenido: bytes) -> dict:
+    """Valida la plantilla de Albor y devuelve sus referencias."""
+    from openpyxl import load_workbook
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(contenido)) as z:
+            rutas = _rutas_hojas(z)
+    except (zipfile.BadZipFile, KeyError) as e:
+        raise ErrorArchivo(f"No es un .xlsx válido: {e}")
+    if HOJA_DATOS not in rutas or HOJA_REFERENCIAS not in rutas:
+        raise ErrorArchivo(
+            f"No es la plantilla de importación de cosechas de Albor: le faltan las hojas "
+            f"«{HOJA_DATOS}» y «{HOJA_REFERENCIAS}»."
+        )
+    libro = load_workbook(io.BytesIO(contenido), read_only=True)
+    encabezado = [str(v or "").strip() for v in next(libro[HOJA_DATOS].iter_rows(max_row=1, values_only=True))]
+    faltan = [c for c in COLUMNAS_USADAS if c not in encabezado]
+    if faltan:
+        raise ErrorArchivo("A la plantilla de Albor le faltan columnas: " + ", ".join(faltan))
+
+    filas = libro[HOJA_REFERENCIAS].iter_rows(values_only=True)
+    titulos = [str(v or "").strip() for v in next(filas)]
+    indices = {clave: titulos.index(col) for clave, col in LISTAS.items() if col in titulos}
+    listas: dict[str, list[str]] = {clave: [] for clave in LISTAS}
+    for fila in filas:
+        for clave, i in indices.items():
+            if i < len(fila) and fila[i] not in (None, ""):
+                listas[clave].append(str(fila[i]).strip())
+    # Sin repetidos, en el orden de Albor.
+    listas = {clave: list(dict.fromkeys(valores)) for clave, valores in listas.items()}
+    return {"encabezado": encabezado, "listas": listas, "cargada": datetime.now().isoformat(timespec="seconds")}
+
+
+def guardar_plantilla(contenido: bytes) -> dict:
+    referencias = leer_plantilla(contenido)
+    ALBOR_DIR.mkdir(parents=True, exist_ok=True)
+    _escribir_atomico(PLANTILLA, contenido)
+    _escribir_atomico(REFERENCIAS, json.dumps(referencias, ensure_ascii=False).encode())
+    return referencias
+
+
+def referencias() -> dict | None:
+    if not (PLANTILLA.is_file() and REFERENCIAS.is_file()):
+        return None
+    return json.loads(REFERENCIAS.read_text(encoding="utf-8"))
+
+
+def _escribir_atomico(destino: Path, contenido: bytes) -> None:
+    temporal = destino.with_name(destino.name + ".tmp")
+    temporal.write_bytes(contenido)
+    temporal.replace(destino)
+
+
+# ---------------------------------------------------------------------------
+# Equivalencias SoftCereal -> Albor
+# ---------------------------------------------------------------------------
+
+def equivalencias() -> dict[str, dict[str, str]]:
+    datos = json.loads(EQUIVALENCIAS.read_text(encoding="utf-8")) if EQUIVALENCIAS.is_file() else {}
+    return {tipo: dict(datos.get(tipo, {})) for tipo, *_ in TIPOS_EQUIVALENCIA}
+
+
+def guardar_equivalencias(nuevas: dict[str, dict[str, str]], reemplazar: bool = False) -> None:
+    """Suma (o con reemplazar, pisa) equivalencias. Un valor vacío la borra."""
+    actuales = {t: {} for t, *_ in TIPOS_EQUIVALENCIA} if reemplazar else equivalencias()
+    for tipo, valores in nuevas.items():
+        for clave, valor in valores.items():
+            if valor.strip():
+                actuales.setdefault(tipo, {})[clave] = valor.strip()
+            else:
+                actuales.setdefault(tipo, {}).pop(clave, None)
+    ALBOR_DIR.mkdir(parents=True, exist_ok=True)
+    _escribir_atomico(EQUIVALENCIAS, json.dumps(actuales, ensure_ascii=False, indent=1, sort_keys=True).encode())
+
+
+def _sin_cosecha(descripcion: str) -> str:
+    """'Soja ESP Cosecha 25/26' -> 'Soja ESP'."""
+    return re.sub(r"\s*cosecha\s*\d{2}/\d{2}\s*$", "", descripcion.strip(), flags=re.I).strip()
+
+
+def _palabras_especie(texto: str) -> str:
+    return re.sub(r"\besp\b", "especial", _normalizar(texto))
+
+
+def _especie_exacta(descripcion: str, lista: list[str]) -> str:
+    buscada = _palabras_especie(_sin_cosecha(descripcion))
+    for opcion in lista:
+        resto = opcion.split(" - ", 1)[-1]
+        if _palabras_especie(resto) == buscada:
+            return opcion
+    return ""
+
+
+def sugerir(tipo: str, clave: str, refs: dict) -> str:
+    """La opción más parecida de Albor, o '' si no hay una razonable."""
+    listas = refs["listas"]
+    if tipo == "especie":
+        return _especie_exacta(clave, listas["especie"])
+    if tipo == "cultivo":
+        return _sugerir_cultivo(clave, listas["cultivo"])
+    if tipo in ("deposito", "destino"):
+        # Sin una pista mejor, la planta de acopio de Alberti.
+        return next((o for o in listas[tipo] if _normalizar(o.split(" - ", 1)[-1]) == "planta alberti"), "")
+    return ""
+
+
+def _numeros(texto: str) -> set[str]:
+    return {n.lstrip("0") or "0" for n in re.findall(r"\d+", texto)}
+
+
+def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
+    """'El Bagual-lote 15 | Soja ESP | 25/26' -> '02836 - El Bagual LTV 15 SOJA ESP 25/26'.
+
+    Solo se sugiere un cultivo de la misma campaña y especie, cuyo nombre
+    empiece con el del campo y que tenga los mismos números de lote: sugerir
+    uno parecido pero equivocado es peor que no sugerir, porque se confirma
+    sin mirar.
+    """
+    lote, especie, campana = clave_cultivo.split(" | ")
+    campo, _, numero_lote = lote.partition("-")
+    especie_n = _normalizar(especie).split()[0] if _normalizar(especie) else ""
+    campo_n = _normalizar(campo)
+    mejor, puntaje, candidatos = "", 0.0, []
+    for opcion in opciones:
+        descripcion = opcion.split(" - ", 1)[-1].strip()
+        if not descripcion.endswith(campana):
+            continue
+        descripcion = descripcion[: -len(campana)]
+        normalizada = _normalizar(descripcion)
+        if especie_n not in normalizada.split() or not normalizada.startswith(campo_n):
+            continue
+        resto = normalizada[len(campo_n):]
+        if _numeros(numero_lote) != _numeros(resto):
+            continue
+        # Las palabras del lote ("Entrada", "Fondo") también tienen que estar.
+        palabras = set(re.findall(r"[a-z]+", _normalizar(numero_lote))) - {"lote"}
+        if not palabras <= set(resto.split()):
+            continue
+        candidatos.append(opcion)
+        parecido = difflib.SequenceMatcher(None, _normalizar(f"{lote} {especie}"), normalizada).ratio()
+        if parecido > puntaje:
+            mejor, puntaje = opcion, parecido
+    # Sin lote en SoftCereal ("La Nutria-"), solo si el campo tiene un único cultivo.
+    if not _normalizar(numero_lote) and len(candidatos) != 1:
+        return ""
+    return mejor
+
+
+def _transportista(nombre: str, lista: list[str]) -> str:
+    buscado = _normalizar(nombre)
+    if not buscado:
+        return ""
+    exactos = [o for o in lista if _normalizar(o.split(" - ", 1)[-1]) == buscado]
+    if exactos:
+        return exactos[0]
+    mejor = max(lista, key=lambda o: difflib.SequenceMatcher(None, buscado, _normalizar(o.split(" - ", 1)[-1])).ratio(), default="")
+    if mejor and difflib.SequenceMatcher(None, buscado, _normalizar(mejor.split(" - ", 1)[-1])).ratio() >= 0.92:
+        return mejor
+    return ""
+
+
+def _chofer(documento: str, lista: list[str]) -> str:
+    """El DNI de SoftCereal dentro del CUIT de la lista de Albor:
+    'OTTONELLO MARCOS (20-36272819-4)' -> '20-36272819-4'."""
+    dni = re.sub(r"\D", "", documento)
+    if not dni:
+        return ""
+    for opcion in lista:
+        m = re.search(r"\((\d{2})-?(\d{7,8})-?(\d)\)\s*$", opcion)
+        if m and m.group(2).lstrip("0") == dni.lstrip("0"):
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Exportación de SoftCereal
+# ---------------------------------------------------------------------------
+
+# Campo interno -> encabezados posibles (normalizados) y cuál aparición tomar.
+# La exportación repite "Descripción": la primera es el campo-lote, la segunda
+# la especie y cosecha. "Sucursar Interna CPE" viene así, mal escrito, del ERP.
+FUENTES = {
+    "ctg": [("ctg", 0)],
+    "ingreso": [("numero ingreso", 0), ("numero de ingreso", 0)],
+    "ticket": [("numero ticket", 0), ("numero de ticket asignado", 0)],
+    "planta": [("planta", 0)],
+    "cosecha": [("cosecha", 0)],
+    "lote": [("descripcion", 0)],
+    "especie": [("descripcion", 1)],
+    "fecha": [("fecha hora orden de carga", 0), ("fecha y hora calada", 0), ("fecha y hora peso bruto", 0)],
+    "bruto": [("peso bruto reconocido", 0), ("peso bruto acopio", 0)],
+    "tara": [("tara", 0)],
+    "humedad": [("humedad", 0)],
+    "estimado": [("kilos estimados", 0)],
+    "km": [("kilometros acarreo", 0)],
+    "transportista": [("nombre empresa de transporte", 0)],
+    "chofer": [("carnet conductor transportista", 0)],
+    "sucursal_cpe": [("sucursar interna cpe", 0), ("sucursal interna cpe", 0)],
+    "numero_cpe": [("numero interno cpe", 0)],
+    "observaciones": [("observaciones orden de carga", 0)],
+}
+OBLIGATORIAS = {"ctg": "CTG", "lote": "Descripción (campo-lote)", "especie": "Descripción (especie)",
+                "cosecha": "Cosecha", "planta": "Planta", "bruto": "Peso Bruto Reconocido", "tara": "Tara"}
+
+
 def _indices(encabezado: list[str]) -> dict[str, int]:
-    """Campo interno -> índice de columna. Toma la primera coincidencia: la
-    exportación trae encabezados repetidos ("Tarifa Fumigada")."""
-    posiciones: dict[str, int] = {}
-    for indice, nombre in enumerate(encabezado):
-        posiciones.setdefault(_normalizar(nombre), indice)
+    apariciones: dict[str, list[int]] = {}
+    for i, nombre in enumerate(encabezado):
+        apariciones.setdefault(_normalizar(nombre), []).append(i)
     indices = {}
     for campo, candidatos in FUENTES.items():
-        for candidato in candidatos:
-            if candidato in posiciones:
-                indices[campo] = posiciones[candidato]
+        for nombre, n in candidatos:
+            if len(apariciones.get(nombre, [])) > n:
+                indices[campo] = apariciones[nombre][n]
                 break
-    faltan = [c for c in OBLIGATORIAS if c not in indices]
+    faltan = [titulo for campo, titulo in OBLIGATORIAS.items() if campo not in indices]
     if faltan:
-        nombres = {"ctg": "CTG", "bruto": "Peso Bruto Reconocido", "tara": "Tara"}
         raise ErrorArchivo(
-            "El archivo no parece una exportación de ingresos de SoftCereal: falta la columna "
-            + ", ".join(nombres[c] for c in faltan)
+            "El archivo no parece la exportación de ingresos de SoftCereal: falta la columna "
+            + ", ".join(faltan)
         )
     return indices
 
 
-# ---------------------------------------------------------------------------
-# Formatos de Albor
-# ---------------------------------------------------------------------------
-
-def _decimal(texto: str) -> Decimal | None:
-    texto = (texto or "").strip().replace(",", ".")
-    if not texto:
-        return None
-    try:
-        return Decimal(texto)
-    except InvalidOperation:
-        return None
-
-
-def _formatear(valor, formato: str):
-    """Devuelve (valor listo para la celda, error o '')."""
-    if valor in (None, ""):
-        return None, ""
-    tipo, medida = formato[0], formato[1:]
-    if tipo == "C":
-        texto = str(valor).strip()
-        largo = int(medida)
-        if len(texto) <= largo:
-            return texto, ""
-        if largo == 1:  # un código (E/M, S/N): recortarlo cambiaría su significado
-            return None, f"'{texto}' tiene más de {largo} carácter"
-        return texto[:largo], ""  # observaciones: se recortan
-    numero = valor if isinstance(valor, Decimal) else _decimal(str(valor))
-    if numero is None:
-        return None, f"'{valor}' no es un número"
-    if numero < 0:
-        return None, "es negativo"
-    if tipo == "N":
-        entero = numero.to_integral_value(rounding=ROUND_HALF_UP)
-        if len(str(int(entero))) > int(medida):
-            return None, f"tiene más de {medida} dígitos"
-        return int(entero), ""
-    digitos, decimales = (int(x) for x in medida.split(","))
-    redondeado = numero.quantize(Decimal(1).scaleb(-decimales), rounding=ROUND_HALF_UP)
-    if len(str(int(redondeado))) > digitos - decimales:
-        return None, f"supera el máximo de {digitos - decimales} dígitos enteros"
-    return float(redondeado), ""
+def leer_softcereal(filas_planilla: list[list[str]]) -> list[dict]:
+    """Filas de SoftCereal (encabezado primero) -> un dict por ingreso."""
+    if len(filas_planilla) < 2:
+        raise ErrorArchivo("El archivo no tiene filas de datos")
+    indices = _indices(filas_planilla[0])
+    ingresos = []
+    # +2: los títulos de la exportación se descartan, así que se numera desde
+    # el encabezado; sirve igual para ubicar el ingreso por número.
+    for numero, datos in enumerate(filas_planilla[1:], start=2):
+        fila = {campo: (datos[i].strip() if i < len(datos) else "") for campo, i in indices.items()}
+        fila["fila"] = numero
+        ingresos.append(fila)
+    return ingresos
 
 
 # ---------------------------------------------------------------------------
 # Conversión
 # ---------------------------------------------------------------------------
 
+def _campana(cosecha: str) -> str:
+    """'2526' -> '25/26'."""
+    digitos = re.sub(r"\D", "", cosecha)
+    return f"{digitos[:2]}/{digitos[2:]}" if len(digitos) == 4 else cosecha
+
+
+def clave(tipo: str, ingreso: dict) -> str:
+    if tipo == "especie":
+        return _sin_cosecha(ingreso["especie"])
+    if tipo == "cultivo":
+        return f"{ingreso['lote']} | {_sin_cosecha(ingreso['especie'])} | {_campana(ingreso['cosecha'])}"
+    return f"Planta {ingreso['planta']}"  # deposito y destino
+
+
+def pendientes(ingresos: list[dict], refs: dict) -> dict[str, list[dict]]:
+    """Las equivalencias que faltan confirmar, con su sugerencia.
+    Las especies con nombre idéntico en Albor se guardan solas."""
+    guardadas = equivalencias()
+    automaticas: dict[str, dict[str, str]] = {}
+    faltan: dict[str, list[dict]] = {}
+    for tipo, *_ in TIPOS_EQUIVALENCIA:
+        conteo: dict[str, int] = {}
+        for ingreso in ingresos:
+            k = clave(tipo, ingreso)
+            if k and k not in guardadas[tipo]:
+                conteo[k] = conteo.get(k, 0) + 1
+        for k, n in sorted(conteo.items()):
+            sugerencia = sugerir(tipo, k, refs)
+            if tipo == "especie" and sugerencia:
+                automaticas.setdefault(tipo, {})[k] = sugerencia
+            else:
+                faltan.setdefault(tipo, []).append({"clave": k, "sugerencia": sugerencia, "filas": n})
+    if automaticas:
+        guardar_equivalencias(automaticas)
+    return faltan
+
+
 @dataclass
 class Fila:
-    numero: int           # fila de la planilla de SoftCereal, para encontrarla
+    numero: int
     ingreso: str
     valores: dict = field(default_factory=dict)
     errores: list[str] = field(default_factory=list)
+    avisos: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return not self.errores
 
 
-def _fila(numero: int, datos: list[str], indices: dict[str, int]) -> Fila:
-    def dato(campo: str) -> str:
-        i = indices.get(campo)
-        return datos[i].strip() if i is not None and i < len(datos) else ""
+def _numero(texto: str) -> Decimal | None:
+    try:
+        return Decimal((texto or "").strip().replace(",", ".")) if (texto or "").strip() else None
+    except InvalidOperation:
+        return None
 
-    ctg = re.sub(r"\D", "", dato("ctg"))
-    sucursal, cp = dato("sucursal"), dato("numero_cpe")
-    observaciones = " · ".join(p for p in (
-        f"Ingreso {dato('ingreso')}" if dato("ingreso") else "",
-        dato("observaciones"),
-    ) if p)
 
-    crudos = {
-        # Toda CPE de SoftCereal es electrónica: las manuales dejaron de
-        # existir en 2021. Sin CTG ni CPE no hay como identificarla.
-        "Tipo CP": "E",
-        "Sucursal CPE": sucursal,
-        "CTG": ctg,
-        "CP": cp,
-        "Flete Corto": "N",
-        "Bruto Destino": dato("bruto"),
-        "Tara Destino": dato("tara"),
-        "Porcentaje Humedad destino": dato("humedad"),
-        "Merma Humedad": dato("kg_humedad"),
-        "Porcentaje Zaranda": dato("pct_zaranda"),
-        "KG Zaranda": dato("kg_zaranda"),
-        "Merma Kg Volatil": dato("pct_volatil"),
-        "Kg Volatil": dato("kg_volatil"),
-        "Otras mermas": "",
-        "Factor": dato("factor"),
-        "Observaciones": observaciones,
-    }
+def _texto_numero(valor: Decimal | None, decimales: int = 0) -> str:
+    if valor is None:
+        return ""
+    if decimales == 0:
+        return str(int(valor.to_integral_value()))
+    texto = f"{valor:.{decimales}f}".rstrip("0").rstrip(".")
+    return texto.replace(".", SEPARADOR_DECIMAL)
 
-    fila = Fila(numero=numero, ingreso=dato("ingreso"))
-    for nombre, formato in COLUMNAS:
-        valor, error = _formatear(crudos[nombre], formato)
-        if error:
-            fila.errores.append(f"{nombre}: {error}")
-        fila.valores[nombre] = valor
 
-    # Obligatoriedad (hoja Referencias): Tipo E necesita CTG, o Sucursal + CP.
+def _fecha(texto: str) -> str:
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(texto.strip(), formato).strftime(FORMATO_FECHA)
+        except ValueError:
+            continue
+    return ""
+
+
+def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
+    listas = refs["listas"]
+    fila = Fila(numero=ingreso["fila"], ingreso=ingreso.get("ingreso", ""))
     v = fila.valores
-    if not v["CTG"] and not (v["Sucursal CPE"] and v["CP"]):
-        fila.errores.append("Falta el CTG, y tampoco hay Sucursal + CP para identificar la CPE")
-    if v["Bruto Destino"] is None or v["Tara Destino"] is None:
-        fila.errores.append("Falta el peso bruto o la tara de destino")
-    elif v["Tara Destino"] >= v["Bruto Destino"]:
-        fila.errores.append(f"La tara ({v['Tara Destino']}) no es menor que el bruto ({v['Bruto Destino']})")
+
+    def equivalente(tipo: str, obligatorio: bool, titulo: str) -> str:
+        valor = equiv[tipo].get(clave(tipo, ingreso), "")
+        if not valor and obligatorio:
+            fila.errores.append(f"Falta la equivalencia de {titulo}: {clave(tipo, ingreso)}")
+        return _valor_lista(valor) if valor else ""
+
+    ctg = re.sub(r"\D", "", ingreso["ctg"])
+    if len(ctg) != 11:
+        fila.errores.append(f"CTG inválido: «{ingreso['ctg']}»")
+    bruto, tara = _numero(ingreso["bruto"]), _numero(ingreso["tara"])
+    if bruto is None or tara is None:
+        fila.errores.append("Falta el peso bruto o la tara")
+    elif tara >= bruto:
+        fila.errores.append(f"La tara ({tara}) no es menor que el bruto ({bruto})")
+    fecha = _fecha(ingreso.get("fecha", ""))
+    if not fecha:
+        fila.errores.append("Falta la fecha de carga")
+
+    campana = _campana(ingreso["cosecha"])
+    if listas["campana"] and not any(codigo(o) == campana for o in listas["campana"]):
+        fila.avisos.append(f"La campaña {campana} no está en las Referencias de la plantilla")
+
+    chofer = _chofer(ingreso.get("chofer", ""), listas["chofer"])
+    transportista = _transportista(ingreso.get("transportista", ""), listas["transportista"])
+    if ingreso.get("transportista") and not transportista:
+        fila.avisos.append(f"Transportista sin código en Albor: {ingreso['transportista']}")
+    if ingreso.get("chofer") and not chofer:
+        fila.avisos.append(f"Chofer sin CUIT en Albor: DNI {ingreso['chofer']}")
+
+    observaciones = " · ".join(p for p in (
+        f"SoftCereal ingreso {ingreso['ingreso']}" if ingreso.get("ingreso") else "",
+        ingreso.get("observaciones", ""),
+    ) if p)[:250]
+
+    v.update({
+        "Fecha": fecha,
+        "Número de ticket": ingreso.get("ticket", "").replace(" ", "-"),
+        "Código campaña": campana,
+        "Código especie": equivalente("especie", True, "especie"),
+        # Albor tiene un solo tipo de grano ("UNICO"): si es así, va ese.
+        "Tipo de Grano": _valor_lista(listas["grano"][0]) if len(listas["grano"]) == 1 else "",
+        "Código cultivo": equivalente("cultivo", True, "cultivo"),
+        "Código depósito destino": equivalente("deposito", True, "depósito destino"),
+        "Código destino": equivalente("destino", False, "destino"),
+        "Peso Estimado": _texto_numero(_numero(ingreso.get("estimado", ""))),
+        "% Humedad Destino": _texto_numero(_numero(ingreso.get("humedad", "")), 2),
+        "Peso Destino Bruto": _texto_numero(bruto),
+        "Peso Destino Tara": _texto_numero(tara),
+        "Peso Destino Neto": _texto_numero(bruto - tara) if bruto is not None and tara is not None else "",
+        "Tipo de Flete": TIPO_FLETE,
+        "Chofer (CUIT)": chofer,
+        "Código transportista": _valor_lista(transportista) if transportista else "",
+        "Tipo CPE": "E",
+        "Sucursal CPE": ingreso.get("sucursal_cpe", ""),
+        "Carta de Porte": ingreso.get("numero_cpe", ""),
+        "Flete Corto": "No",
+        "CTG": ctg,
+        "Fecha Partida": fecha,
+        "Distancia Planta": _texto_numero(_numero(ingreso.get("km", ""))),
+        "Observaciones remitente": observaciones,
+        # La CPE ya existe en ARCA: que Albor no pida otra.
+        "Obtener COT": "No",
+        "Obtener CTG": "No",
+    })
     return fila
+
+
+# Columnas de Albor que llena la conversión (las demás van vacías).
+COLUMNAS_USADAS = [
+    "Fecha", "Número de ticket", "Código campaña", "Código especie", "Tipo de Grano",
+    "Código cultivo", "Código depósito destino", "Código destino", "Peso Estimado",
+    "% Humedad Destino", "Peso Destino Bruto", "Peso Destino Tara", "Peso Destino Neto",
+    "Tipo de Flete", "Chofer (CUIT)", "Código transportista", "Tipo CPE", "Sucursal CPE",
+    "Carta de Porte", "Flete Corto", "CTG", "Fecha Partida", "Distancia Planta",
+    "Observaciones remitente", "Obtener COT", "Obtener CTG",
+]
 
 
 @dataclass
@@ -233,39 +525,99 @@ class Resultado:
     def con_error(self) -> list[Fila]:
         return [f for f in self.filas if not f.ok]
 
+    @property
+    def avisos(self) -> dict[str, int]:
+        """Aviso -> cantidad de filas, para mostrarlos agrupados."""
+        conteo: dict[str, int] = {}
+        for f in self.validas:
+            for a in f.avisos:
+                conteo[a] = conteo.get(a, 0) + 1
+        return dict(sorted(conteo.items(), key=lambda x: -x[1]))
 
-def convertir(filas_planilla: list[list[str]]) -> Resultado:
-    """Filas de SoftCereal (con el encabezado primero) -> filas de Albor."""
-    if len(filas_planilla) < 2:
-        raise ErrorArchivo("El archivo no tiene filas de datos")
-    indices = _indices(filas_planilla[0])
-    filas: list[Fila] = []
-    repetidos: list[str] = []
-    vistos: set = set()
-    # +2: la fila 1 de SoftCereal es la de encabezados, y Excel cuenta desde 1.
-    for numero, datos in enumerate(filas_planilla[1:], start=2):
-        fila = _fila(numero, datos, indices)
-        clave = fila.valores["CTG"] or (fila.valores["Sucursal CPE"], fila.valores["CP"])
-        if fila.ok and clave in vistos:
-            repetidos.append(f"CTG {fila.valores['CTG']} (fila {numero}): repetido, va una sola vez")
+
+def convertir(ingresos: list[dict], refs: dict) -> Resultado:
+    equiv = equivalencias()
+    filas, repetidos, vistos = [], [], set()
+    for ingreso in ingresos:
+        fila = _armar(ingreso, refs, equiv)
+        ctg = fila.valores["CTG"]
+        if fila.ok and ctg in vistos:
+            repetidos.append(f"CTG {ctg} (fila {fila.numero}): repetido, va una sola vez")
             continue
-        vistos.add(clave)
+        vistos.add(ctg)
         filas.append(fila)
     return Resultado(filas, repetidos)
 
 
-def escribir(filas: list[Fila], destino: Path) -> Path:
-    """Llena la hoja Padron de la plantilla de Albor. La hoja Referencias queda."""
-    libro = load_workbook(PLANTILLA_ALBOR)
-    hoja = libro[HOJA]
-    encabezado = [hoja.cell(1, i + 1).value for i in range(len(NOMBRES))]
-    if encabezado != NOMBRES:
-        raise ValueError(f"La plantilla de Albor cambió de columnas: {encabezado}")
-    if hoja.max_row > 1:
-        hoja.delete_rows(2, hoja.max_row - 1)
+# ---------------------------------------------------------------------------
+# Tandas: las filas leídas, mientras se confirman las equivalencias
+# ---------------------------------------------------------------------------
+
+def guardar_tanda(ingresos: list[dict], origen: str) -> str:
+    TANDAS.mkdir(parents=True, exist_ok=True)
+    limite = datetime.now() - RETENCION_TANDAS
+    for vieja in TANDAS.glob("*.json"):
+        if datetime.fromtimestamp(vieja.stat().st_mtime) < limite:
+            vieja.unlink(missing_ok=True)
+    tanda = uuid.uuid4().hex
+    (TANDAS / f"{tanda}.json").write_text(json.dumps({"origen": origen, "ingresos": ingresos}, ensure_ascii=False))
+    return tanda
+
+
+def leer_tanda(tanda: str) -> dict | None:
+    if not re.fullmatch(r"[0-9a-f]{32}", tanda or ""):
+        return None
+    ruta = TANDAS / f"{tanda}.json"
+    return json.loads(ruta.read_text(encoding="utf-8")) if ruta.is_file() else None
+
+
+# ---------------------------------------------------------------------------
+# Escritura
+# ---------------------------------------------------------------------------
+
+def _columna(n: int) -> str:
+    letras = ""
+    while n:
+        n, resto = divmod(n - 1, 26)
+        letras = chr(65 + resto) + letras
+    return letras
+
+
+def _hoja_xml(encabezado: list[str], filas: list[Fila], estilo: str) -> bytes:
+    """La hoja de datos, con todas las celdas como texto: así viene la plantilla."""
+    s = f' s="{estilo}"' if estilo else ""
+
+    def celda(ref: str, texto: str, con_estilo: bool) -> str:
+        atributos = s if con_estilo else ""
+        if not texto:
+            return f'<x:c r="{ref}"{atributos} t="inlineStr" />'
+        return f'<x:c r="{ref}"{atributos} t="inlineStr"><x:is><x:t xml:space="preserve">{escape(texto)}</x:t></x:is></x:c>'
+
+    partes = ['<?xml version="1.0" encoding="utf-8"?>'
+              '<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData>']
+    partes.append('<x:row r="1">' + "".join(
+        celda(f"{_columna(i)}1", nombre, False) for i, nombre in enumerate(encabezado, start=1)) + "</x:row>")
     for n, fila in enumerate(filas, start=2):
-        for i, nombre in enumerate(NOMBRES):
-            hoja.cell(n, i + 1, fila.valores[nombre])
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    libro.save(destino)
+        partes.append(f'<x:row r="{n}">' + "".join(
+            celda(f"{_columna(i)}{n}", str(fila.valores.get(nombre, "") or ""), True)
+            for i, nombre in enumerate(encabezado, start=1)) + "</x:row>")
+    partes.append("</x:sheetData></x:worksheet>")
+    return "".join(partes).encode("utf-8")
+
+
+def escribir(filas: list[Fila], refs: dict, destino: Path) -> Path:
+    """Copia la plantilla de Albor cambiando solo la hoja de datos: la hoja
+    Referencias (30 MB de XML) pasa tal cual, sin abrirla."""
+    with zipfile.ZipFile(PLANTILLA) as origen:
+        ruta = _rutas_hojas(origen)[HOJA_DATOS]
+        original = origen.read(ruta).decode("utf-8-sig")
+        m = re.search(r'<(?:\w+:)?c r="[A-Z]+2"[^>]*\bs="(\d+)"', original)
+        estilo = m.group(1) if m else ""
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        temporal = destino.with_name(destino.name + ".tmp")
+        with zipfile.ZipFile(temporal, "w", zipfile.ZIP_DEFLATED) as salida:
+            for item in origen.infolist():
+                datos = _hoja_xml(refs["encabezado"], filas, estilo) if item.filename == ruta else origen.read(item)
+                salida.writestr(item, datos)
+        temporal.replace(destino)
     return destino

@@ -329,3 +329,8 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   .ic-soltar, .ic-lateral { transition: none; }
 }
+
+/* Equivalencias SoftCereal -> Albor */
+.ic-equivalencias td:first-child { min-width: 180px; }
+.ic-equivalencias td:last-child { min-width: 260px; width: 55%; }
+.ic-equivalencias .rv-input { width: 100%; }
