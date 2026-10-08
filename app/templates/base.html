@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#3c5a32">
   <title>{% block titulo %}Informar CPE a Visec{% endblock %} — Rivara</title>
   <link rel="icon" href="/static/logo-rivara.png">
-  <link rel="stylesheet" href="/static/rivara-ui.css">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/rivara-ui.css?v={{ version_estaticos }}">
+  <link rel="stylesheet" href="/static/app.css?v={{ version_estaticos }}">
 </head>
 <body>
 {% set en_albor = seccion == 'albor' %}
@@ -21,11 +21,16 @@
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
     </button>
 
+    <!-- Igual que la tarjeta de perfil del portal (.pt-perfil). -->
     <div class="rv-card ic-marca">
-      <span class="ic-hero-logo"><img src="/static/logo-rivara.png" alt=""></span>
+      <span class="rv-disco rv-disco--sm" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
+        </svg>
+      </span>
       <span class="ic-marca-texto">
-        <strong>Cartas de porte</strong>
-        <small>{{ usuario.name if usuario and usuario.name else 'Rivara' }}</small>
+        <strong>{{ usuario.name if usuario and usuario.name else (usuario.email if usuario and usuario.email else 'Rivara') }}</strong>
+        <small>{{ 'Administrador' if es_admin else 'Operario' }} · Cartas de porte</small>
       </span>
     </div>
 
@@ -56,9 +61,15 @@
       {% endif %}
     </nav>
 
-    {% if portal_url %}
-    <a class="rv-btn rv-btn--secundario ic-lateral-pie" href="{{ portal_url }}">Volver al portal</a>
-    {% endif %}
+    <!-- Al pie, como el recuadro de soporte del portal (.pt-soporte). -->
+    <div class="rv-card ic-lateral-pie">
+      <span class="ic-pie-titulo">
+        <img src="/static/logo-rivara.png" alt="" width="22" height="22">Rivara · Cartas de porte
+      </span>
+      {% if portal_url %}
+      <a class="rv-btn rv-btn--secundario" href="{{ portal_url }}">Volver al portal</a>
+      {% endif %}
+    </div>
   </aside>
 
   <div class="ic-principal">

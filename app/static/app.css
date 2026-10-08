@@ -34,10 +34,11 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  /* Alto de la pantalla, para que el recuadro del pie quede abajo de todo. */
+  min-height: calc(100vh - 40px);
 }
 
-.ic-marca { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
-.ic-marca .ic-hero-logo { box-shadow: var(--rv-sombra); }
+.ic-marca { display: flex; align-items: center; gap: 12px; padding: 16px; }
 .ic-marca-texto { display: flex; flex-direction: column; min-width: 0; }
 .ic-marca-texto strong { font-size: 15px; font-weight: 800; line-height: 1.2; }
 .ic-marca-texto small { font-size: 13px; color: var(--rv-verde-osc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -52,7 +53,10 @@ a.rv-nav-item.rv-nav-item--activo:hover { color: #fff; }
 .ic-nav-alerta { opacity: 1; color: var(--rv-bordo); }
 .rv-nav-item--activo .ic-nav-alerta { color: #fff; }
 
-.ic-lateral-pie { justify-content: center; }
+.ic-lateral-pie { margin-top: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.ic-lateral-pie .rv-btn { justify-content: center; }
+.ic-pie-titulo { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; color: var(--rv-verde-osc); }
+.ic-pie-titulo img { object-fit: contain; }
 
 .ic-principal {
   flex: 1 1 420px;

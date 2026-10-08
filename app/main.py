@@ -109,6 +109,21 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 plantillas = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
+def _version_estaticos() -> str:
+    """Huella de los CSS, para pedirlos como app.css?v=...: sin esto el
+    navegador sigue usando el CSS de la version anterior despues de un deploy
+    y la pantalla se ve rota (HTML nuevo con estilos viejos)."""
+    import hashlib
+
+    huella = hashlib.sha256()
+    for ruta in sorted((BASE_DIR / "static").glob("*.css")):
+        huella.update(ruta.read_bytes())
+    return huella.hexdigest()[:10]
+
+
+plantillas.env.globals["version_estaticos"] = _version_estaticos()
+
+
 # ---------------------------------------------------------------------------
 # Sesión compartida con el portal
 # ---------------------------------------------------------------------------
