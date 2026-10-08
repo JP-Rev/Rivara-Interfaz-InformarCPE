@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block titulo %}Equivalencias SoftCereal → Albor{% endblock %}
 
-{% block contenido %}
+{% block titulo_pagina %}
 <div class="ic-titulo">
   <h2>{% if tanda %}Confirmá las equivalencias{% else %}Equivalencias guardadas{% endif %}</h2>
   <a class="rv-btn rv-btn--fantasma" href="/albor">Volver</a>
 </div>
+{% endblock %}
+
+{% block contenido %}
 
 <form class="rv-card ic-tarjeta" method="post" action="/albor/equivalencias">
   <input type="hidden" name="tanda" value="{{ tanda }}">

@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 
-{% block contenido %}
+{% block titulo_pagina %}
 <div class="ic-titulo">
   <h2>Números de CTG a informar</h2>
   <span class="rv-meta" id="contador"></span>
 </div>
+{% endblock %}
+
+{% block contenido %}
 
 <form class="rv-card ic-tarjeta" method="post" action="/generar" enctype="multipart/form-data" id="formulario">
   <p class="ic-ayuda">

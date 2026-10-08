@@ -54,6 +54,20 @@
       </span>
       {% endif %}
     </section>
+
+    <!-- Título de la página y solapas: también a todo el ancho, así la barra
+         lateral y la primera tarjeta empiezan a la misma altura. -->
+    <div class="ic-encabezado-pagina">
+      {% if seccion not in ('albor', 'certificados') %}
+      <nav class="ic-solapas" aria-label="Tipo de movimiento">
+        <a class="ic-solapa {% if seccion != 'egresos' %}ic-solapa--activa{% endif %}" href="/"
+           {% if seccion != 'egresos' %}aria-current="page"{% endif %}>Ingresos</a>
+        <a class="ic-solapa {% if seccion == 'egresos' %}ic-solapa--activa{% endif %}" href="/egresos"
+           {% if seccion == 'egresos' %}aria-current="page"{% endif %}>Egresos</a>
+      </nav>
+      {% endif %}
+      {% block titulo_pagina %}{% endblock %}
+    </div>
   </div>
 
   <div class="ic-fila">
@@ -115,14 +129,6 @@
 
   <div class="ic-principal">
 
-    {% if seccion not in ('albor', 'certificados') %}
-    <nav class="ic-solapas" aria-label="Tipo de movimiento">
-      <a class="ic-solapa {% if seccion != 'egresos' %}ic-solapa--activa{% endif %}" href="/"
-         {% if seccion != 'egresos' %}aria-current="page"{% endif %}>Ingresos</a>
-      <a class="ic-solapa {% if seccion == 'egresos' %}ic-solapa--activa{% endif %}" href="/egresos"
-         {% if seccion == 'egresos' %}aria-current="page"{% endif %}>Egresos</a>
-    </nav>
-    {% endif %}
 
     {% if certs_alerta and seccion != 'certificados' %}
       <a class="rv-card rv-card--enlace ic-alerta-cert" href="/certificados">

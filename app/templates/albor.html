@@ -16,11 +16,14 @@
   </label>
 {% endmacro %}
 
-{% block contenido %}
+{% block titulo_pagina %}
 <div class="ic-titulo">
   <h2>Exportación de SoftCereal</h2>
   <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
 </div>
+{% endblock %}
+
+{% block contenido %}
 
 <form class="rv-card ic-tarjeta" method="post" action="/albor" enctype="multipart/form-data" data-formulario>
   <p class="ic-ayuda">

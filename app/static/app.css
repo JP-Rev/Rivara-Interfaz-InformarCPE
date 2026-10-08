@@ -30,6 +30,11 @@
 .ic-arriba { display: flex; flex-direction: column; gap: 22px; }
 .ic-fila { display: flex; gap: 22px; align-items: flex-start; }
 
+/* Franja del título de la página (y las solapas de Visec), a todo el ancho:
+   el título a la izquierda, solapas y acciones a la derecha. */
+.ic-encabezado-pagina { display: flex; align-items: center; gap: 12px 22px; flex-wrap: wrap; }
+.ic-encabezado-pagina .ic-titulo { flex: 1 1 320px; order: -1; }
+
 /* ---- Barra lateral (mismas medidas que .pt-lateral del portal) ---- */
 
 .ic-lateral {

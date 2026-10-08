@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block titulo %}Certificados de ARCA{% endblock %}
 
-{% block contenido %}
+{% block titulo_pagina %}
 <div class="ic-titulo">
   <h2>Certificados de ARCA</h2>
   <a class="rv-btn rv-btn--fantasma" href="/">Volver a Ingresos</a>
 </div>
+{% endblock %}
+
+{% block contenido %}
 
 {% if ok %}<p class="rv-nota rv-nota--ok">{{ ok }}</p>{% endif %}
 {% if error and not error_cuit %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
