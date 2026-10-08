@@ -27,6 +27,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .config import BASE_DIR, config
+from . import albor
+from .planillas import filas as filas_planilla
 from . import certificados
 from .correo import ErrorCorreo, enviar as enviar_mail, problemas_correo
 from .planillas import a_texto as planilla_a_texto, es_planilla
@@ -67,6 +69,7 @@ def purgar(carpeta: Path, patron: str, dias: int) -> int:
 
 def purgar_todo() -> None:
     purgar(SALIDA_DIR, "visec_cpe_*.xlsx", RETENCION_SALIDA_DIAS)
+    purgar(SALIDA_DIR, "albor_cp_*.xlsx", RETENCION_SALIDA_DIAS)
     purgar(config.cache_dir / "respuestas", "cpe_*.json", RETENCION_RESPUESTAS_DIAS)
 
 
@@ -545,6 +548,64 @@ def mail_de_prueba(request: Request):
     return _pagina_certificados(request, usuario, ok=f"Mail de prueba enviado a {', '.join(config.smtp_para)}.")
 
 
+# ---------------------------------------------------------------------------
+# SoftCereal -> Albor
+# ---------------------------------------------------------------------------
+
+def _con_sesion(request: Request) -> dict | RedirectResponse:
+    usuario = usuario_de(request)
+    if usuario:
+        return usuario
+    respuesta = _sin_sesion(request)
+    if isinstance(respuesta, HTTPException):
+        raise respuesta
+    return respuesta
+
+
+@app.get("/albor", response_class=HTMLResponse)
+def ver_albor(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    return plantillas.TemplateResponse(request, "albor.html", _contexto(request, usuario, seccion="albor"))
+
+
+@app.post("/albor", response_class=HTMLResponse)
+async def generar_albor(request: Request, archivo: UploadFile = File(...)):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+
+    def error(mensaje: str):
+        return plantillas.TemplateResponse(
+            request, "albor.html", _contexto(request, usuario, seccion="albor", error=mensaje), status_code=400,
+        )
+
+    contenido = await archivo.read()
+    if not es_planilla(contenido):
+        return error("El archivo no es un Excel. Subí la exportación de SoftCereal en .xlsx o .xls.")
+    try:
+        resultado = albor.convertir(filas_planilla(contenido))
+    except albor.ErrorArchivo as e:
+        return error(str(e))
+    except Exception as e:  # planilla dañada o de un formato raro
+        log.warning("No se pudo leer %s: %s", archivo.filename, e)
+        return error(f"No se pudo leer la planilla: {e}")
+
+    nombre = ""
+    if resultado.validas:
+        purgar_todo()
+        nombre = f"albor_cp_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:6]}.xlsx"
+        albor.escribir(resultado.validas, SALIDA_DIR / nombre)
+    log.info("Usuario %s convirtió %s filas de SoftCereal a Albor (%s con error)",
+             usuario.get("email") or usuario.get("name"), len(resultado.filas), len(resultado.con_error))
+    return plantillas.TemplateResponse(
+        request, "albor_resultado.html",
+        _contexto(request, usuario, seccion="albor", resultado=resultado, archivo=nombre,
+                  origen=archivo.filename, columnas=albor.NOMBRES),
+    )
+
+
 @app.get("/egresos", response_class=HTMLResponse)
 def egresos(request: Request):
     """Solapa de egresos: todavia sin construir."""
@@ -562,7 +623,7 @@ def descargar(request: Request, nombre: str):
     if not usuario_de(request):
         raise HTTPException(status_code=401, detail="Sesión no válida")
     # El nombre lo genera la app, pero igual se valida: viene por la URL.
-    if not re.fullmatch(r"visec_cpe_[0-9_a-f]+\.xlsx", nombre):
+    if not re.fullmatch(r"(visec_cpe|albor_cp)_[0-9_a-f]+\.xlsx", nombre):
         raise HTTPException(status_code=400, detail="Nombre de archivo inválido")
     ruta = SALIDA_DIR / nombre
     if not ruta.is_file():

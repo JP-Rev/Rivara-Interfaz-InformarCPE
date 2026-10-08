@@ -10,73 +10,153 @@
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<div class="ic">
-  <header class="ic-barra">
-    <span class="rv-chip {% if es_produccion %}rv-chip--tint{% else %}rv-chip--neutro{% endif %}">
-      ARCA · {{ entorno }}
-    </span>
-    <div class="ic-barra-acciones">
-      {% if usuario and usuario.name %}<span class="rv-meta">{{ usuario.name }}</span>{% endif %}
+{% set en_albor = seccion == 'albor' %}
+<div class="ic" id="ic">
+  <!-- Mismo patrón que la barra lateral del portal: fija en escritorio, panel
+       que se corre en pantallas chicas, con velo detrás. -->
+  <button type="button" class="ic-velo" id="velo" aria-label="Cerrar menú" hidden></button>
+
+  <aside class="ic-lateral" id="menu-lateral">
+    <button type="button" class="ic-cerrar-menu" id="cerrar-menu" aria-label="Cerrar menú">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+
+    <div class="rv-card ic-marca">
+      <span class="ic-hero-logo"><img src="/static/logo-rivara.png" alt=""></span>
+      <span class="ic-marca-texto">
+        <strong>Cartas de porte</strong>
+        <small>{{ usuario.name if usuario and usuario.name else 'Rivara' }}</small>
+      </span>
+    </div>
+
+    <nav class="rv-nav" aria-label="Secciones">
+      <a class="rv-nav-item {% if seccion not in ('albor', 'certificados') %}rv-nav-item--activo{% endif %}" href="/"
+         {% if seccion not in ('albor', 'certificados') %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 6h10v10H3zM13 9h4l4 4v3h-8z" /><circle cx="7" cy="18" r="2" /><circle cx="17.5" cy="18" r="2" />
+        </svg>
+        <span class="ic-nav-label">Informar Visec</span>
+      </a>
+      <a class="rv-nav-item {% if en_albor %}rv-nav-item--activo{% endif %}" href="/albor"
+         {% if en_albor %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10M3 15h18" />
+        </svg>
+        <span class="ic-nav-label">Importar CPE SoftCereal → Albor</span>
+      </a>
       {% if es_admin %}
-        <a class="rv-btn rv-btn--fantasma" href="/certificados">Certificados</a>
+      <a class="rv-nav-item {% if seccion == 'certificados' %}rv-nav-item--activo{% endif %}" href="/certificados"
+         {% if seccion == 'certificados' %}aria-current="page"{% endif %}>
+        <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="8" cy="15" r="4" /><path d="M10.8 12.2L20 3M16 7l3 3M14 9l2 2" />
+        </svg>
+        <span class="ic-nav-label">Certificados</span>
+        {% if certs_alerta %}<span class="rv-nav-conteo ic-nav-alerta">!</span>{% endif %}
+      </a>
       {% endif %}
-      {% if es_admin and modo %}
-        <a class="rv-btn rv-btn--fantasma" href="/modo/elegir">Versión {{ modo }} · Cambiar versión</a>
+    </nav>
+
+    {% if portal_url %}
+    <a class="rv-btn rv-btn--secundario ic-lateral-pie" href="{{ portal_url }}">Volver al portal</a>
+    {% endif %}
+  </aside>
+
+  <div class="ic-principal">
+    <header class="ic-barra">
+      <button type="button" class="ic-hamburguesa" id="abrir-menu" aria-label="Abrir menú"
+              aria-expanded="false" aria-controls="menu-lateral">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+      </button>
+      {% if not en_albor %}
+      <span class="rv-chip {% if es_produccion %}rv-chip--tint{% else %}rv-chip--neutro{% endif %}">
+        ARCA · {{ entorno }}
+      </span>
       {% endif %}
-      {% if portal_url %}
-        <a class="rv-btn rv-btn--secundario" href="{{ portal_url }}">Volver al portal</a>
+      <div class="ic-barra-acciones">
+        {% if es_admin and modo and not en_albor %}
+          <a class="rv-btn rv-btn--fantasma" href="/modo/elegir">Versión {{ modo }} · Cambiar versión</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <section class="rv-hero ic-hero">
+      <span class="ic-hero-logo"><img src="/static/logo-rivara.png" alt="Rivara"></span>
+      {% if en_albor %}
+      <span class="ic-hero-texto">
+        <strong>Importar CPE SoftCereal → Albor</strong>
+        <small>De la exportación de ingresos de SoftCereal a la planilla de descargas de Albor.</small>
+      </span>
+      {% else %}
+      <span class="ic-hero-texto">
+        <strong>Informar CPE a Visec</strong>
+        <small>Las cartas de porte salen de ARCA; acá se arma el XLSX que pide Visec.</small>
+      </span>
+      <span class="ic-hero-cifras">
+        <span><strong>{{ entorno }}</strong><small>Entorno</small></span>
+        <span><strong class="rv-num">{{ max_ctg }}</strong><small>CTG por tanda</small></span>
+      </span>
       {% endif %}
+    </section>
+
+    {% if seccion not in ('albor', 'certificados') %}
+    <nav class="ic-solapas" aria-label="Tipo de movimiento">
+      <a class="ic-solapa {% if seccion != 'egresos' %}ic-solapa--activa{% endif %}" href="/"
+         {% if seccion != 'egresos' %}aria-current="page"{% endif %}>Ingresos</a>
+      <a class="ic-solapa {% if seccion == 'egresos' %}ic-solapa--activa{% endif %}" href="/egresos"
+         {% if seccion == 'egresos' %}aria-current="page"{% endif %}>Egresos</a>
+    </nav>
+    {% endif %}
+
+    {% if certs_alerta and seccion != 'certificados' %}
+      <a class="rv-card rv-card--enlace ic-alerta-cert" href="/certificados">
+        {% for e in certs_alerta %}
+          <span>
+            <strong>Certificado de ARCA, CUIT {{ e.cuit }}:</strong>
+            {% if e.nivel == 'vencido' %}venció el {{ e.vence.strftime('%d/%m/%Y') }}.
+            {% elif e.nivel == 'aviso' %}vence en {{ e.dias }} días ({{ e.vence.strftime('%d/%m/%Y') }}).
+            {% else %}{{ e.error or 'no se pudo leer' }}.{% endif %}
+          </span>
+        {% endfor %}
+        <span class="ic-alerta-link">Renovarlo →</span>
+      </a>
+    {% endif %}
+
+    {% if problemas and not en_albor %}
+      <div class="rv-card">
+        <p class="rv-nota rv-nota--error">
+          Falta configuración antes de poder consultar ARCA:
+          <ul>{% for problema in problemas %}<li>{{ problema }}</li>{% endfor %}</ul>
+          Se corrige en el <code>.env</code> del servidor.
+        </p>
+      </div>
+    {% endif %}
+
+    <div class="ic-cuerpo">
+      <main class="ic-columna">
+        {% block contenido %}{% endblock %}
+      </main>
     </div>
-  </header>
-
-  <section class="rv-hero ic-hero">
-    <span class="ic-hero-logo"><img src="/static/logo-rivara.png" alt="Rivara"></span>
-    <span class="ic-hero-texto">
-      <strong>Informar CPE a Visec</strong>
-      <small>Las cartas de porte salen de ARCA; acá se arma el XLSX que pide Visec.</small>
-    </span>
-    <span class="ic-hero-cifras">
-      <span><strong>{{ entorno }}</strong><small>Entorno</small></span>
-      <span><strong class="rv-num">{{ max_ctg }}</strong><small>CTG por tanda</small></span>
-    </span>
-  </section>
-
-  <nav class="ic-solapas" aria-label="Tipo de movimiento">
-    <a class="ic-solapa {% if seccion not in ('egresos', 'certificados') %}ic-solapa--activa{% endif %}" href="/"
-       {% if seccion not in ('egresos', 'certificados') %}aria-current="page"{% endif %}>Ingresos</a>
-    <a class="ic-solapa {% if seccion == 'egresos' %}ic-solapa--activa{% endif %}" href="/egresos"
-       {% if seccion == 'egresos' %}aria-current="page"{% endif %}>Egresos</a>
-  </nav>
-
-  {% if certs_alerta and seccion != 'certificados' %}
-    <a class="rv-card rv-card--enlace ic-alerta-cert" href="/certificados">
-      {% for e in certs_alerta %}
-        <span>
-          <strong>Certificado de ARCA, CUIT {{ e.cuit }}:</strong>
-          {% if e.nivel == 'vencido' %}venció el {{ e.vence.strftime('%d/%m/%Y') }}.
-          {% elif e.nivel == 'aviso' %}vence en {{ e.dias }} días ({{ e.vence.strftime('%d/%m/%Y') }}).
-          {% else %}{{ e.error or 'no se pudo leer' }}.{% endif %}
-        </span>
-      {% endfor %}
-      <span class="ic-alerta-link">Renovarlo →</span>
-    </a>
-  {% endif %}
-
-  {% if problemas %}
-    <div class="rv-card">
-      <p class="rv-nota rv-nota--error">
-        Falta configuración antes de poder consultar ARCA:
-        <ul>{% for problema in problemas %}<li>{{ problema }}</li>{% endfor %}</ul>
-        Se corrige en el <code>.env</code> del servidor.
-      </p>
-    </div>
-  {% endif %}
-
-  <div class="ic-cuerpo">
-    <main class="ic-columna">
-      {% block contenido %}{% endblock %}
-    </main>
   </div>
 </div>
+
+<script>
+  // Menú lateral en pantallas chicas (kit §7): se abre con el botón, se cierra
+  // con el velo, con la X o con Escape, y el fondo no scrollea mientras tanto.
+  (() => {
+    const ic = document.getElementById('ic')
+    const velo = document.getElementById('velo')
+    const abrir = document.getElementById('abrir-menu')
+    const poner = (abierto) => {
+      ic.classList.toggle('ic--menu-abierto', abierto)
+      velo.hidden = !abierto
+      abrir.setAttribute('aria-expanded', String(abierto))
+      document.body.style.overflow = abierto ? 'hidden' : ''
+    }
+    abrir.addEventListener('click', () => poner(true))
+    velo.addEventListener('click', () => poner(false))
+    document.getElementById('cerrar-menu').addEventListener('click', () => poner(false))
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') poner(false) })
+  })()
+</script>
 </body>
 </html>

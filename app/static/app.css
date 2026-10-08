@@ -16,14 +16,54 @@
 
 .ic {
   display: flex;
-  flex-direction: column;
   gap: 22px;
-  max-width: 1120px;
+  align-items: flex-start;
+  max-width: 1440px;
   min-height: 100vh;
   margin: 0 auto;
   padding: 20px;
   padding-top: max(20px, env(safe-area-inset-top));
 }
+
+/* ---- Barra lateral (mismas medidas que .pt-lateral del portal) ---- */
+
+.ic-lateral {
+  position: sticky;
+  top: 20px;
+  flex: 0 0 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ic-marca { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.ic-marca .ic-hero-logo { box-shadow: var(--rv-sombra); }
+.ic-marca-texto { display: flex; flex-direction: column; min-width: 0; }
+.ic-marca-texto strong { font-size: 15px; font-weight: 800; line-height: 1.2; }
+.ic-marca-texto small { font-size: 13px; color: var(--rv-verde-osc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* rv-nav-item del kit esta pensado como <button>: como enlace hay que
+   sacarle el subrayado y fijar el color del texto. */
+a.rv-nav-item { text-decoration: none; color: var(--rv-texto); }
+a.rv-nav-item:hover { color: var(--rv-texto); }
+a.rv-nav-item.rv-nav-item--activo,
+a.rv-nav-item.rv-nav-item--activo:hover { color: #fff; }
+.ic-nav-label { flex: 1; min-width: 0; line-height: 1.25; }
+.ic-nav-alerta { opacity: 1; color: var(--rv-bordo); }
+.rv-nav-item--activo .ic-nav-alerta { color: #fff; }
+
+.ic-lateral-pie { justify-content: center; }
+
+.ic-principal {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* En escritorio no existen: la barra lateral esta siempre a la vista. */
+.ic-hamburguesa, .ic-cerrar-menu, .ic-velo { display: none; }
 
 /* Las clases del kit (.rv-campo es display:flex) le ganan al atributo hidden
    del navegador: sin esto, un campo "escondido" se sigue viendo. */
@@ -223,13 +263,69 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 /* En el celular la tabla no entra: scrollea sola en vez de desbordar la página. */
 .ic-tabla-scroll { overflow-x: auto; }
 .ic-tabla-scroll .rv-tabla { min-width: 780px; }
+.ic-tabla-scroll .ic-tabla-ancha { min-width: 1500px; font-size: 13px; }
+.ic-tabla-ancha th, .ic-tabla-ancha td { white-space: nowrap; padding: 8px 10px; }
+
+/* Pantallas chicas: la barra lateral pasa a ser un panel que se corre
+   (kit §7). Apilada se comia la primera pantalla entera. */
+@media (max-width: 860px) {
+  .ic { padding: 14px; gap: 16px; }
+
+  .ic-lateral {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 40;
+    width: min(290px, 86vw);
+    height: 100dvh;
+    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    overflow-y: auto;
+    background: var(--rv-bg);
+    box-shadow: 4px 0 24px rgba(35, 48, 31, 0.18);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+
+  .ic--menu-abierto .ic-lateral { transform: translateX(0); }
+
+  .ic-velo:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    padding: 0;
+    background: rgba(22, 30, 18, 0.45);
+    border: 0;
+    cursor: pointer;
+  }
+
+  .ic-hamburguesa,
+  .ic-cerrar-menu {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 44px;   /* el minimo comodo para un dedo */
+    height: 44px;
+    color: var(--rv-verde-osc);
+    background: var(--rv-surface);
+    border: 0;
+    border-radius: var(--rv-r-md);
+    box-shadow: var(--rv-sombra);
+    cursor: pointer;
+  }
+
+  .ic-cerrar-menu { align-self: flex-end; margin-bottom: -6px; }
+  .ic-hero { gap: 14px; padding: 16px 18px; }
+  .ic-hero-texto strong { font-size: 19px; }
+}
 
 @media (max-width: 640px) {
-  .ic { padding: 16px; gap: 18px; }
   .ic-barra-acciones { margin-left: 0; }
   .ic-resumen-dato { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ic-soltar { transition: none; }
+  .ic-soltar, .ic-lateral { transition: none; }
 }

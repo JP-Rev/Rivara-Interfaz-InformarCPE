@@ -318,6 +318,37 @@ variable a `app/static/fuentes/archivo-variable.woff2` (está en el
 el CSS cae a la tipografía del sistema y la app funciona igual, solo se ve
 distinta.
 
+## Importar CPE SoftCereal → Albor
+
+Segunda sección del menú lateral, para todos los usuarios. Toma la exportación
+de ingresos de SoftCereal (el Excel del editor SQL) y arma
+`DESCARGA_CP_Albor.xlsx` (hoja **Padron**) para importar en Albor los pesos y
+mermas de destino de cada CPE. La plantilla está en `app/plantilla_albor.xlsx`
+y la hoja **Referencias** viaja intacta.
+
+Las reglas salen de esa hoja Referencias: `C(x)` texto de hasta x caracteres,
+`N(x)` entero de hasta x dígitos, `D(x,y)` número con y decimales, y para Tipo
+CP `E` hace falta el CTG o, si no, Sucursal + CP. Además se controla que la tara
+sea menor que el bruto. **Una fila que no cumple queda afuera y se muestra**:
+Albor rechaza la importación entera por una fila mal armada.
+
+| Albor | SoftCereal |
+|---|---|
+| Tipo CP | `E` en todas |
+| Sucursal CPE / CP | Sucursal Interna CPE / Número Interno CPE |
+| CTG | CTG |
+| Flete Corto | `N` en todas |
+| Bruto Destino / Tara Destino | Peso Bruto Reconocido / Tara |
+| Porcentaje Humedad destino / Merma Humedad | Humedad / Kilos de Merma Humedad |
+| Porcentaje Zaranda / KG Zaranda | Merma Zarandeo / Kilos Merma Zarandeo |
+| Merma Kg Volatil / Kg Volatil | Merma Volátil / Kilos Merma Volátil |
+| Otras mermas | vacío |
+| Factor | Factor |
+| Observaciones | número de ingreso + Observaciones Orden de Carga |
+
+Las columnas de SoftCereal se buscan por nombre, así que no importa el orden de
+la exportación. El mapeo está en `FUENTES` de `app/albor.py`.
+
 ## Qué columnas completa, y de dónde
 
 | Columna de Visec | Origen (campos de la respuesta, manual wscpe v2.0.5) |

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block titulo %}SoftCereal → Albor{% endblock %}
+
+{% block contenido %}
+<div class="ic-titulo">
+  <h2>Exportación de SoftCereal</h2>
+</div>
+
+<form class="rv-card ic-tarjeta" method="post" action="/albor" enctype="multipart/form-data" id="formulario">
+  <p class="ic-ayuda">
+    Arrastrá la exportación de ingresos de SoftCereal (el Excel del editor SQL).
+    La app arma la planilla de descargas de Albor con los pesos y las mermas de
+    destino de cada CPE, validados con las reglas de Albor: las filas que no
+    cumplen quedan afuera y se muestran, para que la importación no se rechace
+    entera.
+  </p>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+  <label class="ic-soltar" id="zona">
+    <input type="file" id="archivo" name="archivo" accept=".xlsx,.xls" required hidden>
+    <span class="rv-disco rv-disco--md" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4M8 8l4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+      </svg>
+    </span>
+    <span class="ic-soltar-texto">
+      <strong id="zona-titulo">Soltá acá la exportación de SoftCereal</strong>
+      <small id="zona-detalle">o tocá para elegirla — .xlsx o .xls</small>
+    </span>
+  </label>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit" id="enviar">Generar la planilla de Albor</button>
+  </div>
+</form>
+
+<div class="rv-card ic-tarjeta">
+  <h3>Qué va en cada columna de Albor</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>Albor</th><th>Sale de SoftCereal</th><th>Formato</th></tr></thead>
+      <tbody>
+        <tr><td>Tipo CP</td><td><code>E</code> (electrónica) en todas</td><td>C(1)</td></tr>
+        <tr><td>Sucursal CPE</td><td>Sucursal Interna CPE</td><td>N(5)</td></tr>
+        <tr><td>CTG</td><td>CTG</td><td>N(20)</td></tr>
+        <tr><td>CP</td><td>Número Interno CPE</td><td>N(15)</td></tr>
+        <tr><td>Flete Corto</td><td><code>N</code> en todas</td><td>C(1)</td></tr>
+        <tr><td>Bruto Destino</td><td>Peso Bruto Reconocido</td><td>N(8)</td></tr>
+        <tr><td>Tara Destino</td><td>Tara</td><td>N(8)</td></tr>
+        <tr><td>Porcentaje Humedad destino</td><td>Humedad</td><td>D(4,2)</td></tr>
+        <tr><td>Merma Humedad</td><td>Kilos de Merma Humedad</td><td>D(8,2)</td></tr>
+        <tr><td>Porcentaje Zaranda</td><td>Merma Zarandeo</td><td>D(4,2)</td></tr>
+        <tr><td>KG Zaranda</td><td>Kilos Merma Zarandeo</td><td>D(8,2)</td></tr>
+        <tr><td>Merma Kg Volatil</td><td>Merma Volátil</td><td>D(6,4)</td></tr>
+        <tr><td>Kg Volatil</td><td>Kilos Merma Volátil</td><td>D(8,2)</td></tr>
+        <tr><td>Otras mermas</td><td>vacío</td><td>D(8,2)</td></tr>
+        <tr><td>Factor</td><td>Factor</td><td>D(8,3)</td></tr>
+        <tr><td>Observaciones</td><td>Número de ingreso + Observaciones Orden de Carga</td><td>C(250)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const zona = document.getElementById('zona')
+  const archivo = document.getElementById('archivo')
+  const mostrar = (a) => {
+    if (!a) return
+    zona.classList.add('ic-soltar--cargado')
+    document.getElementById('zona-titulo').textContent = a.name
+    document.getElementById('zona-detalle').textContent = `${Math.max(1, Math.round(a.size / 1024))} kB — tocá para cambiarla`
+  }
+  archivo.addEventListener('change', () => mostrar(archivo.files[0]))
+  ;['dragenter', 'dragover'].forEach((ev) => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('ic-soltar--encima') }))
+  ;['dragleave', 'dragend'].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove('ic-soltar--encima')))
+  zona.addEventListener('drop', (e) => {
+    e.preventDefault(); zona.classList.remove('ic-soltar--encima')
+    const a = e.dataTransfer.files[0]; if (!a) return
+    const lista = new DataTransfer(); lista.items.add(a); archivo.files = lista.files; mostrar(a)
+  })
+  ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!zona.contains(e.target)) e.preventDefault() }))
+  document.getElementById('formulario').addEventListener('submit', () => {
+    const b = document.getElementById('enviar'); b.disabled = true; b.textContent = 'Generando…'
+  })
+</script>
+{% endblock %}

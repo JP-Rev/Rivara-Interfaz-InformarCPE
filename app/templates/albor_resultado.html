@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block titulo %}Planilla de Albor{% endblock %}
+
+{% block contenido %}
+<div class="ic-titulo">
+  <h2>Planilla de Albor</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/albor">Convertir otro archivo</a>
+</div>
+
+<div class="rv-card ic-tarjeta">
+  <p class="rv-meta">Desde {{ origen }}</p>
+  <div class="ic-resumen">
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ resultado.validas | length }}</span>
+      <span class="ic-resumen-etiqueta">filas en la planilla</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ resultado.con_error | length }}</span>
+      <span class="ic-resumen-etiqueta">dejadas afuera por error</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ resultado.repetidos | length }}</span>
+      <span class="ic-resumen-etiqueta">CTG repetidos</span>
+    </div>
+  </div>
+
+  {% if archivo %}
+    <div class="ic-acciones">
+      <a class="rv-btn rv-btn--primario" href="/descargar/{{ archivo }}">Descargar la planilla para Albor</a>
+      <a class="rv-btn rv-btn--secundario" href="/albor">Convertir otro archivo</a>
+    </div>
+    {% if resultado.con_error %}
+      <p class="rv-nota rv-nota--info">
+        Las filas con error no están en la planilla. Corregilas en SoftCereal y
+        volvé a exportar, o cargalas a mano en Albor.
+      </p>
+    {% else %}
+      <p class="rv-nota rv-nota--ok">Todas las filas pasaron las validaciones de Albor.</p>
+    {% endif %}
+  {% else %}
+    <p class="rv-nota rv-nota--error">Ninguna fila pasó las validaciones, así que no hay planilla.</p>
+  {% endif %}
+</div>
+
+{% if resultado.con_error %}
+<div class="rv-card ic-tarjeta">
+  <h3>Filas que quedaron afuera</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>Fila</th><th>Ingreso</th><th>CTG</th><th>Problema</th></tr></thead>
+      <tbody>
+        {% for f in resultado.con_error %}
+        <tr>
+          <td class="rv-num">{{ f.numero }}</td>
+          <td class="rv-num">{{ f.ingreso or '—' }}</td>
+          <td class="rv-num">{{ f.valores['CTG'] or '—' }}</td>
+          <td><ul class="ic-lista ic-lista--compacta">{% for e in f.errores %}<li>{{ e }}</li>{% endfor %}</ul></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if resultado.repetidos %}
+<div class="rv-card ic-tarjeta">
+  <h3>CTG repetidos</h3>
+  <ul class="ic-lista">{% for r in resultado.repetidos %}<li>{{ r }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if resultado.validas %}
+<div class="rv-card ic-tarjeta">
+  <h3>Vista previa{% if resultado.validas | length > 15 %} (primeras 15 de {{ resultado.validas | length }}){% endif %}</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla ic-tabla-ancha">
+      <thead><tr>{% for c in columnas %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for f in resultado.validas[:15] %}
+        <tr>{% for c in columnas %}<td class="rv-num">{{ '' if f.valores[c] is none else f.valores[c] }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

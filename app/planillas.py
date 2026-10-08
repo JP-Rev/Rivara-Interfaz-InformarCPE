@@ -63,15 +63,20 @@ def _filas_xlsx(contenido: bytes) -> list[list[str]]:
     return [[_texto(v) for v in fila] for fila in hoja.iter_rows(values_only=True)]
 
 
-def a_texto(contenido: bytes) -> str:
-    """Planilla -> texto separado por tabulaciones, desde la fila de encabezados.
+def filas(contenido: bytes) -> list[list[str]]:
+    """Las filas de la planilla desde la de encabezados, en texto.
 
     Los renglones de título que el ERP pone arriba se descartan: los datos
     arrancan en la primera fila que tiene una columna llamada CTG.
     """
-    filas = _filas_xls(contenido) if contenido.startswith(OLE2) else _filas_xlsx(contenido)
+    todas = _filas_xls(contenido) if contenido.startswith(OLE2) else _filas_xlsx(contenido)
     inicio = next(
-        (i for i, fila in enumerate(filas) if any(c.strip().upper() == "CTG" for c in fila)),
+        (i for i, fila in enumerate(todas) if any(c.strip().upper() == "CTG" for c in fila)),
         0,
     )
-    return "\n".join("\t".join(fila) for fila in filas[inicio:] if any(c.strip() for c in fila))
+    return [fila for fila in todas[inicio:] if any(c.strip() for c in fila)]
+
+
+def a_texto(contenido: bytes) -> str:
+    """Planilla -> texto separado por tabulaciones, desde la fila de encabezados."""
+    return "\n".join("\t".join(fila) for fila in filas(contenido))
