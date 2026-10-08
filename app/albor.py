@@ -121,6 +121,52 @@ def es_plantilla(contenido: bytes) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Listado de comprobantes de Albor (lo que ya está cargado)
+# ---------------------------------------------------------------------------
+
+def _html_de_listado(contenido: bytes) -> str | None:
+    """El "Excel" que exporta la grilla de comprobantes de Albor es una tabla
+    HTML en UTF-16 con extensión .xls. Devuelve el HTML, o None si no es eso."""
+    for codificacion in ("utf-16", "utf-8-sig"):
+        if codificacion == "utf-16" and not contenido.startswith((b"\xff\xfe", b"\xfe\xff")):
+            continue
+        try:
+            texto = contenido.decode(codificacion)
+        except UnicodeDecodeError:
+            continue
+        if "<table" in texto[:2000].lower():
+            return texto
+    return None
+
+
+def es_listado_albor(contenido: bytes) -> bool:
+    texto = _html_de_listado(contenido)
+    return bool(texto) and "Nro CTG" in texto[:5000]
+
+
+def ctg_en_listado(contenido: bytes) -> set[str]:
+    """Los CTG de los comprobantes del listado (columnas Nro CTG y Carta Porte)."""
+    import html as html_mod
+
+    texto = _html_de_listado(contenido) or ""
+    filas = [
+        [html_mod.unescape(re.sub(r"<[^>]+>", "", celda)).replace("\xa0", " ").strip()
+         for celda in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", fila, re.S | re.I)]
+        for fila in re.findall(r"<tr[^>]*>(.*?)</tr>", texto, re.S | re.I)
+    ]
+    if not filas:
+        return set()
+    columnas = [i for i, nombre in enumerate(filas[0]) if nombre in ("Nro CTG", "Carta Porte")]
+    ctgs = set()
+    for fila in filas[1:]:
+        for i in columnas:
+            valor = re.sub(r"\D", "", fila[i]) if i < len(fila) else ""
+            if len(valor) == 11:
+                ctgs.add(valor)
+    return ctgs
+
+
 def leer_plantilla(contenido: bytes) -> dict:
     """Valida la plantilla de Albor y devuelve sus referencias."""
     from openpyxl import load_workbook
@@ -532,6 +578,7 @@ COLUMNAS_USADAS = [
 class Resultado:
     filas: list[Fila]
     repetidos: list[str]
+    ya_en_albor: list[dict] = field(default_factory=list)
 
     @property
     def validas(self) -> list[Fila]:
@@ -551,7 +598,7 @@ class Resultado:
         return dict(sorted(conteo.items(), key=lambda x: -x[1]))
 
 
-def convertir(ingresos: list[dict], refs: dict) -> Resultado:
+def convertir(ingresos: list[dict], refs: dict, ya_en_albor: list[dict] | None = None) -> Resultado:
     equiv = equivalencias()
     filas, repetidos, vistos = [], [], set()
     for ingreso in ingresos:
@@ -562,21 +609,29 @@ def convertir(ingresos: list[dict], refs: dict) -> Resultado:
             continue
         vistos.add(ctg)
         filas.append(fila)
-    return Resultado(filas, repetidos)
+    return Resultado(filas, repetidos, ya_en_albor or [])
+
+
+def separar_cargados(ingresos: list[dict], ctgs: set[str]) -> tuple[list[dict], list[dict]]:
+    """(los que faltan cargar, los que ya están en Albor)."""
+    faltan, cargados = [], []
+    for ingreso in ingresos:
+        (cargados if re.sub(r"\D", "", ingreso["ctg"]) in ctgs else faltan).append(ingreso)
+    return faltan, cargados
 
 
 # ---------------------------------------------------------------------------
 # Tandas: las filas leídas, mientras se confirman las equivalencias
 # ---------------------------------------------------------------------------
 
-def guardar_tanda(ingresos: list[dict], origen: str) -> str:
+def guardar_tanda(ingresos: list[dict], origen: str, ya_en_albor: list[dict] | None = None) -> str:
     TANDAS.mkdir(parents=True, exist_ok=True)
     limite = datetime.now() - RETENCION_TANDAS
     for vieja in TANDAS.glob("*.json"):
         if datetime.fromtimestamp(vieja.stat().st_mtime) < limite:
             vieja.unlink(missing_ok=True)
     tanda = uuid.uuid4().hex
-    (TANDAS / f"{tanda}.json").write_text(json.dumps({"origen": origen, "ingresos": ingresos}, ensure_ascii=False))
+    (TANDAS / f"{tanda}.json").write_text(json.dumps({"origen": origen, "ingresos": ingresos, "ya_en_albor": ya_en_albor or []}, ensure_ascii=False))
     return tanda
 
 

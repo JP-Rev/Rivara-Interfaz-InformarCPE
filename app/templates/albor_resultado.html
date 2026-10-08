@@ -22,6 +22,12 @@
       <span class="ic-resumen-numero rv-num">{{ resultado.repetidos | length }}</span>
       <span class="ic-resumen-etiqueta">CTG repetidos</span>
     </div>
+    {% if resultado.ya_en_albor %}
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ resultado.ya_en_albor | length }}</span>
+      <span class="ic-resumen-etiqueta">ya estaban en Albor</span>
+    </div>
+    {% endif %}
   </div>
   <div class="ic-acciones">
     <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Revisar equivalencias</a>
@@ -71,6 +77,24 @@
   <h3>Avisos</h3>
   <p class="ic-ayuda">Estas filas sí están en la planilla, con ese dato vacío.</p>
   <ul class="ic-lista">{% for aviso, cantidad in resultado.avisos.items() %}<li>{{ aviso }} — {{ cantidad }} fila{{ 's' if cantidad != 1 }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if resultado.ya_en_albor %}
+<div class="rv-card ic-tarjeta">
+  <details class="ic-plegable">
+    <summary>{{ resultado.ya_en_albor | length }} CTG ya estaban cargados en Albor y no van en la planilla</summary>
+    <div class="ic-tabla-scroll">
+      <table class="rv-tabla">
+        <thead><tr><th>Fila</th><th>Ingreso</th><th>CTG</th><th>Lote</th></tr></thead>
+        <tbody>
+          {% for i in resultado.ya_en_albor %}
+          <tr><td class="rv-num">{{ i.fila }}</td><td class="rv-num">{{ i.ingreso }}</td><td class="rv-num">{{ i.ctg }}</td><td>{{ i.lote }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 </div>
 {% endif %}
 

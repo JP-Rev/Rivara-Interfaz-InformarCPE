@@ -59,9 +59,19 @@
     {{ zona("plantilla", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
   {% endif %}
 
+  <details class="ic-plegable" {% if not refs %}open{% endif %}>
+    <summary>Opcional: dejar afuera lo que ya está cargado en Albor</summary>
+    <p class="ic-ayuda">
+      En Albor, Comprobantes de Acopio, exportá la grilla a Excel
+      (AlborExcel.xls) con el mismo rango de fechas y soltala acá: los CTG que
+      ya figuran ahí no van a la planilla, así no se cargan dos veces.
+    </p>
+    {{ zona("listado", "Soltá acá AlborExcel.xls", "o tocá para elegirlo — .xls", ".xls,.xlsx,.html") }}
+  </details>
+
   <div class="ic-acciones">
     <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Leyendo…">Generar la planilla de Albor</button>
-    <span class="rv-meta">Da igual en qué recuadro sueltes cada archivo: la app los reconoce.</span>
+    <span class="rv-meta">Da igual en qué recuadro sueltes cada archivo: la app reconoce cuál es cuál.</span>
   </div>
 </form>
 

@@ -600,6 +600,7 @@ async def generar_albor(
     request: Request,
     archivo: UploadFile | None = File(None),
     plantilla: UploadFile | None = File(None),
+    listado: UploadFile | None = File(None),
 ):
     """Un solo paso: la exportación de SoftCereal y, si hace falta, la
     plantilla de Albor. Cada archivo se reconoce por su contenido, así que da
@@ -612,7 +613,8 @@ async def generar_albor(
         return _pagina_albor(request, usuario, 400, error=mensaje)
 
     softcereal, nombre = None, ""
-    for subido in (archivo, plantilla):
+    cargados: set[str] | None = None  # CTG que ya están en Albor, si subieron el listado
+    for subido in (archivo, plantilla, listado):
         if not subido or not subido.filename:
             continue
         contenido = await subido.read()
@@ -627,14 +629,21 @@ async def generar_albor(
                 log.warning("No se pudo leer la plantilla de Albor %s: %s", subido.filename, e)
                 return error(f"No se pudo leer la plantilla de Albor: {e}")
             log.info("Usuario %s cargó la plantilla de Albor %s", usuario.get("email") or usuario.get("name"), subido.filename)
+        elif albor.es_listado_albor(contenido):
+            cargados = (cargados or set()) | albor.ctg_en_listado(contenido)
         elif es_planilla(contenido):
             softcereal, nombre = contenido, subido.filename
         else:
-            return error(f"«{subido.filename}» no es un Excel.")
+            return error(
+                f"«{subido.filename}» no es ninguno de los archivos que se esperan: la exportación "
+                "de SoftCereal, la plantilla ImportacionCosecha.xlsx o el listado de comprobantes de Albor."
+            )
 
     if not albor.referencias():
         return error("Falta la plantilla de importación de Albor (ImportacionCosecha.xlsx): soltala en el segundo recuadro.")
     if softcereal is None:
+        if cargados is not None:
+            return error("Con el listado de Albor hace falta también la exportación de SoftCereal.")
         return _pagina_albor(request, usuario, ok_plantilla="Plantilla de Albor cargada. Ahora soltá la exportación de SoftCereal.")
     try:
         ingresos = albor.leer_softcereal(filas_planilla(softcereal))
@@ -643,7 +652,10 @@ async def generar_albor(
     except Exception as e:  # planilla dañada o de un formato raro
         log.warning("No se pudo leer %s: %s", nombre, e)
         return error(f"No se pudo leer la planilla: {e}")
-    tanda = albor.guardar_tanda(ingresos, nombre or "")
+    ya_en_albor: list[dict] = []
+    if cargados:
+        ingresos, ya_en_albor = albor.separar_cargados(ingresos, cargados)
+    tanda = albor.guardar_tanda(ingresos, nombre or "", ya_en_albor)
     return _seguir_tanda(request, usuario, tanda)
 
 
@@ -660,7 +672,7 @@ def _seguir_tanda(request: Request, usuario: dict, tanda: str):
             _contexto(request, usuario, seccion="albor", tanda=tanda, origen=datos["origen"],
                       grupos=_grupos_equivalencias({t: faltan[t] for t in faltan}), listas=refs["listas"]),
         )
-    resultado = albor.convertir(datos["ingresos"], refs)
+    resultado = albor.convertir(datos["ingresos"], refs, datos.get("ya_en_albor"))
     nombre = ""
     if resultado.validas:
         purgar_todo()
