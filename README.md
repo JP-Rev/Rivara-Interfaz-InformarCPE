@@ -346,13 +346,14 @@ confirma una sola vez y queda en `/storage/informarcpe/albor/equivalencias.json`
 | Tipo | Clave de SoftCereal | Ejemplo en Albor |
 |---|---|---|
 | Especie | `Soja ESP` | `1114 - SOJA ESPECIAL` (se resuelve sola si el nombre coincide) |
-| Cultivo | `El Bagual-lote 15 \| Soja ESP \| 25/26` | `02836 - El Bagual LTV 15 SOJA ESP 25/26` |
-| Depósito destino | `Planta 16` | `PSA - Planta Alberti` |
-| Destino (opcional) | `Planta 16` | `8 - Planta Alberti` |
+| Cultivo | `El Bagual-lote 15 \| Soja ESP \| 25/26` | `02836 - El Bagual LTV 15 SOJA ESP 26/27` |
+| Depósito destino | `Planta 16` | `PSAA - Planta Silos Acceso Alberti` |
+| Destino (opcional) | `Planta 16` | `9 - Planta Silo Acceso Acceso Alberti` |
 
 Si al convertir aparece algo sin equivalencia, la app la pide antes de armar la
-planilla, con una sugerencia cuando hay una segura: misma campaña y especie,
-mismo campo y mismos números de lote. Se puede elegir de la lista o escribir el
+planilla, con una sugerencia cuando hay una segura: misma especie, mismo campo
+y mismos números de lote. Los códigos de cultivo de Albor valen para más de una
+campaña (el nombre muestra la última), así que la campaña solo desempata. Se puede elegir de la lista o escribir el
 código directamente. Se revisan y corrigen en **Equivalencias**
 (`/albor/equivalencias`).
 
@@ -366,13 +367,11 @@ código directamente. Se revisan y corrigen en **Equivalencias**
 | Código especie, Código cultivo | equivalencias |
 | Tipo de Grano | el único que tiene Albor (`00001`) |
 | Código depósito destino, Código destino | equivalencias por Planta |
-| Peso Estimado | Kilos Estimados |
-| Peso Destino Bruto / Tara / Neto | Peso Bruto Reconocido / Tara / bruto − tara |
+| Peso Origen y Peso Destino Bruto / Tara / Neto | Peso Bruto Reconocido / Tara / bruto − tara (origen = destino, como lo carga Albor) |
 | % Humedad Destino | Humedad |
 | Código transportista | Nombre Empresa de Transporte, buscado en la lista de Albor |
 | Chofer (CUIT) | Carnet Conductor (DNI), buscado dentro de los CUIT de Albor |
-| Tipo CPE / Sucursal CPE / Carta de Porte / CTG | `E` / Sucursal Interna CPE / Número Interno CPE / CTG |
-| Distancia Planta | Kilómetros Acarreo |
+| Tipo CPE / Carta de Porte / CTG | `E` / CTG / CTG (en Albor la carta de porte de una CPE es el CTG) |
 | Tipo de Flete, Flete Corto, Obtener CTG, Obtener COT | `T`, `No`, `No`, `No` (la CPE ya existe en ARCA) |
 | Observaciones remitente | número de ingreso + Observaciones Orden de Carga |
 | Código tipo de comprobante, Código socio y el resto | vacío |

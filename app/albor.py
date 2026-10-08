@@ -212,8 +212,10 @@ def sugerir(tipo: str, clave: str, refs: dict) -> str:
     if tipo == "cultivo":
         return _sugerir_cultivo(clave, listas["cultivo"])
     if tipo in ("deposito", "destino"):
-        # Sin una pista mejor, la planta de acopio de Alberti.
-        return next((o for o in listas[tipo] if _normalizar(o.split(" - ", 1)[-1]) == "planta alberti"), "")
+        # Donde Albor deja hoy los ingresos de la planta de SoftCereal:
+        # "PSAA - Planta Silos Acceso Alberti" (comprobante de la CPE 10134580361).
+        return next((o for o in listas[tipo] if {"silo", "acceso", "alberti"} <= set(
+            _normalizar(o.split(" - ", 1)[-1]).replace("silos", "silo").split())), "")
     return ""
 
 
@@ -224,10 +226,11 @@ def _numeros(texto: str) -> set[str]:
 def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
     """'El Bagual-lote 15 | Soja ESP | 25/26' -> '02836 - El Bagual LTV 15 SOJA ESP 25/26'.
 
-    Solo se sugiere un cultivo de la misma campaña y especie, cuyo nombre
-    empiece con el del campo y que tenga los mismos números de lote: sugerir
-    uno parecido pero equivocado es peor que no sugerir, porque se confirma
-    sin mirar.
+    Solo se sugiere un cultivo de la misma especie, cuyo nombre empiece con
+    el del campo y que tenga los mismos números de lote: sugerir uno parecido
+    pero equivocado es peor que no sugerir, porque se confirma sin mirar.
+    Los códigos de cultivo de Albor sirven para más de una campaña (el nombre
+    dice la última), así que la campaña solo desempata.
     """
     lote, especie, campana = clave_cultivo.split(" | ")
     campo, _, numero_lote = lote.partition("-")
@@ -236,9 +239,10 @@ def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
     mejor, puntaje, candidatos = "", 0.0, []
     for opcion in opciones:
         descripcion = opcion.split(" - ", 1)[-1].strip()
-        if not descripcion.endswith(campana):
-            continue
-        descripcion = descripcion[: -len(campana)]
+        m = re.search(r"\s*(\d{2}/\d{2})$", descripcion)
+        misma_campana = bool(m) and m.group(1) == campana
+        if m:
+            descripcion = descripcion[: m.start()]
         normalizada = _normalizar(descripcion)
         if especie_n not in normalizada.split() or not normalizada.startswith(campo_n):
             continue
@@ -251,6 +255,7 @@ def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
             continue
         candidatos.append(opcion)
         parecido = difflib.SequenceMatcher(None, _normalizar(f"{lote} {especie}"), normalizada).ratio()
+        parecido += 1 if misma_campana else 0
         if parecido > puntaje:
             mejor, puntaje = opcion, parecido
     # Sin lote en SoftCereal ("La Nutria-"), solo si el campo tiene un único cultivo.
@@ -453,8 +458,6 @@ def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
         fila.errores.append("Falta la fecha de carga")
 
     campana = _campana(ingreso["cosecha"])
-    if listas["campana"] and not any(codigo(o) == campana for o in listas["campana"]):
-        fila.avisos.append(f"La campaña {campana} no está en las Referencias de la plantilla")
 
     chofer = _chofer(ingreso.get("chofer", ""), listas["chofer"])
     transportista = _transportista(ingreso.get("transportista", ""), listas["transportista"])
@@ -478,7 +481,10 @@ def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
         "Código cultivo": equivalente("cultivo", True, "cultivo"),
         "Código depósito destino": equivalente("deposito", True, "depósito destino"),
         "Código destino": equivalente("destino", False, "destino"),
-        "Peso Estimado": _texto_numero(_numero(ingreso.get("estimado", ""))),
+        # Origen = destino, como lo carga hoy Albor: el productor no pesa en el campo.
+        "Peso Origen Bruto": _texto_numero(bruto),
+        "Peso Origen Tara": _texto_numero(tara),
+        "Peso Origen Neto": _texto_numero(bruto - tara) if bruto is not None and tara is not None else "",
         "% Humedad Destino": _texto_numero(_numero(ingreso.get("humedad", "")), 2),
         "Peso Destino Bruto": _texto_numero(bruto),
         "Peso Destino Tara": _texto_numero(tara),
@@ -487,12 +493,11 @@ def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
         "Chofer (CUIT)": chofer,
         "Código transportista": _valor_lista(transportista) if transportista else "",
         "Tipo CPE": "E",
-        "Sucursal CPE": ingreso.get("sucursal_cpe", ""),
-        "Carta de Porte": ingreso.get("numero_cpe", ""),
+        # En Albor la carta de porte de una CPE es el número de CTG.
+        "Carta de Porte": ctg,
         "Flete Corto": "No",
         "CTG": ctg,
         "Fecha Partida": fecha,
-        "Distancia Planta": _texto_numero(_numero(ingreso.get("km", ""))),
         "Observaciones remitente": observaciones,
         # La CPE ya existe en ARCA: que Albor no pida otra.
         "Obtener COT": "No",
@@ -504,10 +509,11 @@ def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
 # Columnas de Albor que llena la conversión (las demás van vacías).
 COLUMNAS_USADAS = [
     "Fecha", "Número de ticket", "Código campaña", "Código especie", "Tipo de Grano",
-    "Código cultivo", "Código depósito destino", "Código destino", "Peso Estimado",
+    "Código cultivo", "Código depósito destino", "Código destino",
+    "Peso Origen Bruto", "Peso Origen Tara", "Peso Origen Neto",
     "% Humedad Destino", "Peso Destino Bruto", "Peso Destino Tara", "Peso Destino Neto",
-    "Tipo de Flete", "Chofer (CUIT)", "Código transportista", "Tipo CPE", "Sucursal CPE",
-    "Carta de Porte", "Flete Corto", "CTG", "Fecha Partida", "Distancia Planta",
+    "Tipo de Flete", "Chofer (CUIT)", "Código transportista", "Tipo CPE",
+    "Carta de Porte", "Flete Corto", "CTG", "Fecha Partida",
     "Observaciones remitente", "Obtener COT", "Obtener CTG",
 ]
 
