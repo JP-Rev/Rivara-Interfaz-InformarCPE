@@ -595,45 +595,55 @@ def ver_albor(request: Request):
     return _pagina_albor(request, usuario)
 
 
-@app.post("/albor/plantilla", response_class=HTMLResponse)
-async def subir_plantilla_albor(request: Request, archivo: UploadFile = File(...)):
-    usuario = _con_sesion(request)
-    if isinstance(usuario, RedirectResponse):
-        return usuario
-    contenido = await archivo.read()
-    if not contenido.startswith(b"PK\x03\x04"):
-        return _pagina_albor(request, usuario, 400, error_plantilla="La plantilla de Albor tiene que ser un .xlsx.")
-    try:
-        refs = await asyncio.to_thread(albor.guardar_plantilla, contenido)
-    except albor.ErrorArchivo as e:
-        return _pagina_albor(request, usuario, 400, error_plantilla=str(e))
-    except Exception as e:
-        log.warning("No se pudo leer la plantilla de Albor %s: %s", archivo.filename, e)
-        return _pagina_albor(request, usuario, 400, error_plantilla=f"No se pudo leer la plantilla: {e}")
-    log.info("Usuario %s cargó la plantilla de Albor %s", usuario.get("email") or usuario.get("name"), archivo.filename)
-    campanas = ", ".join(albor.codigo(c) for c in refs["listas"]["campana"]) or "ninguna"
-    return _pagina_albor(request, usuario, ok_plantilla=f"Plantilla cargada. Campañas en sus Referencias: {campanas}.")
-
-
 @app.post("/albor", response_class=HTMLResponse)
-async def generar_albor(request: Request, archivo: UploadFile = File(...)):
+async def generar_albor(
+    request: Request,
+    archivo: UploadFile | None = File(None),
+    plantilla: UploadFile | None = File(None),
+):
+    """Un solo paso: la exportación de SoftCereal y, si hace falta, la
+    plantilla de Albor. Cada archivo se reconoce por su contenido, así que da
+    igual en qué recuadro se haya soltado."""
     usuario = _con_sesion(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
-    refs = albor.referencias()
-    if not refs:
-        return _pagina_albor(request, usuario, 400, error="Primero cargá la plantilla de importación de Albor.")
-    contenido = await archivo.read()
-    if not es_planilla(contenido):
-        return _pagina_albor(request, usuario, 400, error="El archivo no es un Excel. Subí la exportación de SoftCereal en .xlsx o .xls.")
+
+    def error(mensaje: str):
+        return _pagina_albor(request, usuario, 400, error=mensaje)
+
+    softcereal, nombre = None, ""
+    for subido in (archivo, plantilla):
+        if not subido or not subido.filename:
+            continue
+        contenido = await subido.read()
+        if not contenido:
+            continue
+        if albor.es_plantilla(contenido):
+            try:
+                await asyncio.to_thread(albor.guardar_plantilla, contenido)
+            except albor.ErrorArchivo as e:
+                return error(str(e))
+            except Exception as e:
+                log.warning("No se pudo leer la plantilla de Albor %s: %s", subido.filename, e)
+                return error(f"No se pudo leer la plantilla de Albor: {e}")
+            log.info("Usuario %s cargó la plantilla de Albor %s", usuario.get("email") or usuario.get("name"), subido.filename)
+        elif es_planilla(contenido):
+            softcereal, nombre = contenido, subido.filename
+        else:
+            return error(f"«{subido.filename}» no es un Excel.")
+
+    if not albor.referencias():
+        return error("Falta la plantilla de importación de Albor (ImportacionCosecha.xlsx): soltala en el segundo recuadro.")
+    if softcereal is None:
+        return _pagina_albor(request, usuario, ok_plantilla="Plantilla de Albor cargada. Ahora soltá la exportación de SoftCereal.")
     try:
-        ingresos = albor.leer_softcereal(filas_planilla(contenido))
+        ingresos = albor.leer_softcereal(filas_planilla(softcereal))
     except albor.ErrorArchivo as e:
-        return _pagina_albor(request, usuario, 400, error=str(e))
+        return error(str(e))
     except Exception as e:  # planilla dañada o de un formato raro
-        log.warning("No se pudo leer %s: %s", archivo.filename, e)
-        return _pagina_albor(request, usuario, 400, error=f"No se pudo leer la planilla: {e}")
-    tanda = albor.guardar_tanda(ingresos, archivo.filename or "")
+        log.warning("No se pudo leer %s: %s", nombre, e)
+        return error(f"No se pudo leer la planilla: {e}")
+    tanda = albor.guardar_tanda(ingresos, nombre or "")
     return _seguir_tanda(request, usuario, tanda)
 
 

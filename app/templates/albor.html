@@ -3,7 +3,7 @@
 
 {% macro zona(nombre, titulo, detalle, aceptar) %}
   <label class="ic-soltar" data-zona>
-    <input type="file" name="{{ nombre }}" accept="{{ aceptar }}" required hidden>
+    <input type="file" name="{{ nombre }}" accept="{{ aceptar }}" hidden>
     <span class="rv-disco rv-disco--md" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 16V4M8 8l4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
@@ -31,49 +31,37 @@
   </p>
 
   {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
-  {% if not refs %}
-    <p class="rv-nota rv-nota--info">Antes hay que cargar la plantilla de importación de Albor (abajo).</p>
-  {% endif %}
+  {% if ok_plantilla %}<p class="rv-nota rv-nota--ok">{{ ok_plantilla }}</p>{% endif %}
 
   {{ zona("archivo", "Soltá acá la exportación de SoftCereal", "o tocá para elegirla — .xlsx o .xls", ".xlsx,.xls") }}
 
-  <div class="ic-acciones">
-    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Leyendo…" {% if not refs %}disabled{% endif %}>
-      Generar la planilla de Albor
-    </button>
-  </div>
-</form>
-
-<form class="rv-card ic-tarjeta" method="post" action="/albor/plantilla" enctype="multipart/form-data" data-formulario>
-  <h3>Plantilla de importación de Albor</h3>
   {% if refs %}
-    <p class="ic-ayuda">
-      Cargada el {{ refs.cargada[:10] | replace('-', '/') }}.
-      Campañas en sus Referencias:
-      <strong>{% for c in refs.listas.campana %}{{ c.split(' - ')[0] }}{% if not loop.last %}, {% endif %}{% else %}ninguna{% endfor %}</strong>
-      · {{ refs.listas.cultivo | length }} cultivos · {{ refs.listas.deposito | length }} depósitos.
-    </p>
-    <p class="ic-ayuda">
-      Los códigos (cultivos, depósitos, transportistas) salen de la hoja
-      Referencias. Cuando en Albor se den de alta lotes o campañas nuevas, bajá
-      la plantilla de nuevo y cargala acá.
-    </p>
+    <details class="ic-plegable">
+      <summary>
+        Plantilla de Albor cargada el {{ refs.cargada[:10].split('-') | reverse | join('/') }}
+        · {{ refs.listas.cultivo | length }} cultivos · {{ refs.listas.deposito | length }} depósitos
+        — reemplazarla
+      </summary>
+      <p class="ic-ayuda">
+        Cuando en Albor se den de alta lotes o campañas nuevas, bajá la
+        plantilla (ImportacionCosecha.xlsx) de nuevo y soltala acá, junto con la
+        exportación o sola.
+      </p>
+      {{ zona("plantilla", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
+    </details>
   {% else %}
     <p class="ic-ayuda">
-      En Albor, Comprobantes de Cosecha → importar, bajá la plantilla
-      (ImportacionCosecha.xlsx) y soltala acá. La app toma de ahí los códigos de
-      Albor; queda guardada en el servidor, no hace falta subirla cada vez.
+      <strong>La primera vez, también la plantilla de Albor:</strong> en Albor,
+      Comprobantes de Cosecha → importar, bajá ImportacionCosecha.xlsx y soltala
+      acá abajo. Queda guardada en el servidor: las próximas veces alcanza con
+      la exportación.
     </p>
+    {{ zona("plantilla", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
   {% endif %}
-  {% if error_plantilla %}<p class="rv-nota rv-nota--error">{{ error_plantilla }}</p>{% endif %}
-  {% if ok_plantilla %}<p class="rv-nota rv-nota--ok">{{ ok_plantilla }}</p>{% endif %}
-
-  {{ zona("archivo", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
 
   <div class="ic-acciones">
-    <button class="rv-btn rv-btn--secundario" type="submit" data-enviar="Cargando…">
-      {% if refs %}Reemplazar la plantilla{% else %}Cargar la plantilla{% endif %}
-    </button>
+    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Leyendo…">Generar la planilla de Albor</button>
+    <span class="rv-meta">Da igual en qué recuadro sueltes cada archivo: la app los reconoce.</span>
   </div>
 </form>
 
@@ -122,7 +110,9 @@
     })
   })
   ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!e.target.closest('[data-zona]')) e.preventDefault() }))
-  document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', () => {
+  document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', (e) => {
+    const hay = [...f.querySelectorAll('input[type=file]')].some((i) => i.files.length)
+    if (!hay) { e.preventDefault(); f.querySelector('[data-zona]').classList.add('ic-soltar--encima'); return }
     const b = f.querySelector('[data-enviar]'); b.disabled = true; b.textContent = b.dataset.enviar
   }))
 </script>

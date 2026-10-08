@@ -36,7 +36,18 @@
   gap: 18px;
   /* Alto de la pantalla, para que el recuadro del pie quede abajo de todo. */
   min-height: calc(100vh - 40px);
+  /* Un solo panel blanco que contiene todo el menú: suelto sobre el fondo
+     parecía desarmado. Las tarjetas de adentro pasan al tono del fondo para
+     seguir distinguiéndose del panel. */
+  padding: 16px;
+  background: var(--rv-surface);
+  border: 1px solid var(--rv-tint-borde);
+  border-radius: var(--rv-r-lg);
+  box-shadow: var(--rv-sombra);
 }
+
+.ic-lateral .rv-card { background: var(--rv-bg); box-shadow: none; }
+.ic-lateral a.rv-nav-item:not(.rv-nav-item--activo):hover { background: var(--rv-tint); }
 
 .ic-marca { display: flex; align-items: center; gap: 12px; padding: 16px; }
 .ic-marca-texto { display: flex; flex-direction: column; min-width: 0; }
@@ -76,6 +87,9 @@ a.rv-nav-item.rv-nav-item--activo:hover { color: #fff; }
 /* ---- Barra superior ---- */
 
 .ic-barra { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+/* Sin chip ni acciones solo tiene el botón de menú, que en escritorio no
+   existe: una fila vacía corría el encabezado hacia abajo. */
+@media (min-width: 861px) { .ic-barra--solo-menu { display: none; } }
 .ic-barra-acciones { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; }
 
 /* ---- Encabezado ---- */
@@ -285,7 +299,9 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
     padding: 16px;
     padding-top: max(16px, env(safe-area-inset-top));
     overflow-y: auto;
-    background: var(--rv-bg);
+    background: var(--rv-surface);
+    border: 0;
+    border-radius: 0;
     box-shadow: 4px 0 24px rgba(35, 48, 31, 0.18);
     transform: translateX(-100%);
     transition: transform 0.22s ease;
@@ -338,3 +354,7 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 .ic-equivalencias td:first-child { min-width: 180px; }
 .ic-equivalencias td:last-child { min-width: 260px; width: 55%; }
 .ic-equivalencias .rv-input { width: 100%; }
+
+.ic-plegable { display: flex; flex-direction: column; gap: 12px; }
+.ic-plegable summary { cursor: pointer; font-size: 13.5px; color: var(--rv-texto-2); }
+.ic-plegable[open] summary { margin-bottom: 12px; }

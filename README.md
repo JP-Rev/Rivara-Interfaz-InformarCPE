@@ -327,7 +327,9 @@ hoja **Cosechas a importar**).
 
 ### La plantilla de Albor
 
-Se baja de Albor y se carga desde la misma pantalla. Queda en
+Se baja de Albor y se suelta en la misma pantalla, junto con la exportación de
+SoftCereal (la app reconoce cuál es cuál). Solo hace falta la primera vez y
+cuando cambian los códigos en Albor. Queda en
 `/storage/informarcpe/albor/plantilla_cosecha.xlsx`. **No va en el repositorio**:
 su hoja **Referencias** trae las listas de códigos de Albor (cultivos,
 depósitos, transportistas, choferes con su CUIT), y son datos de personas. La

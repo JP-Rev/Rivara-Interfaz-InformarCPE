@@ -111,6 +111,16 @@ def _desescapar(texto: str) -> str:
             .replace("&apos;", "'").replace("&amp;", "&"))
 
 
+def es_plantilla(contenido: bytes) -> bool:
+    """¿Es la plantilla de Albor? Mira solo los nombres de las hojas, así que
+    sirve para reconocerla aunque la suelten en el recuadro equivocado."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(contenido)) as z:
+            return HOJA_DATOS in _rutas_hojas(z)
+    except (zipfile.BadZipFile, KeyError):
+        return False
+
+
 def leer_plantilla(contenido: bytes) -> dict:
     """Valida la plantilla de Albor y devuelve sus referencias."""
     from openpyxl import load_workbook
