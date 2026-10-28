@@ -34,6 +34,7 @@ PLANTILLA = ALBOR_DIR / "plantilla_cosecha.xlsx"
 REFERENCIAS = ALBOR_DIR / "referencias.json"     # las listas, leídas una vez al subir la plantilla
 EQUIVALENCIAS = ALBOR_DIR / "equivalencias.json"
 TANDAS = ALBOR_DIR / "tandas"                    # filas leídas, esperando equivalencias
+TICKETS = ALBOR_DIR / "tickets.json"             # número de ticket asignado a cada ingreso
 RETENCION_TANDAS = timedelta(days=2)
 
 HOJA_DATOS = "Cosechas a importar"
@@ -45,6 +46,9 @@ SOLO_CODIGO = os.getenv("ALBOR_SOLO_CODIGO", "1") != "0"   # "02836" o "02836 - 
 SEPARADOR_DECIMAL = os.getenv("ALBOR_SEPARADOR_DECIMAL", ",")
 FORMATO_FECHA = os.getenv("ALBOR_FORMATO_FECHA", "%d/%m/%Y")
 TIPO_FLETE = os.getenv("ALBOR_TIPO_FLETE", "T")             # T Tercero, I Interno
+# El número de ticket del ERP no sirve en Albor, así que se numera aparte,
+# arrancando arriba de este valor para no pisar los que ya existen.
+TICKET_DESDE = int(os.getenv("ALBOR_TICKET_DESDE", "1000000"))
 
 # Listas de la hoja Referencias que usa la conversión: nombre en la app -> columna.
 LISTAS = {
@@ -268,11 +272,27 @@ def sugerir(tipo: str, clave: str, refs: dict) -> str:
     if tipo == "cultivo":
         return _sugerir_cultivo(clave, listas["cultivo"])
     if tipo in ("deposito", "destino"):
-        # Donde Albor deja hoy los ingresos de la planta de SoftCereal:
-        # "PSAA - Planta Silos Acceso Alberti" (comprobante de la CPE 10134580361).
-        return next((o for o in listas[tipo] if {"silo", "acceso", "alberti"} <= set(
-            _normalizar(o.split(" - ", 1)[-1]).replace("silos", "silo").split())), "")
+        return _por_nombre(clave.split(" - ", 1)[-1], listas[tipo])
     return ""
+
+
+def _por_nombre(descripcion: str, opciones: list[str]) -> str:
+    """La opción de Albor cuyo nombre más se parece. Sirve para las plantas:
+    'Planta de Silos Acceso' -> 'PSAA - Planta Silos Acceso Alberti',
+    'Planta Baradero' -> 'P.BDRO - PLANTA BARADERO'."""
+    buscado = _normalizar(descripcion).replace("silos", "silo")
+    if not buscado:
+        return ""
+    palabras = set(buscado.split()) - {"planta", "de", "del", "la", "el"}
+    mejor, puntaje = "", 0.0
+    for opcion in opciones:
+        nombre = _normalizar(opcion.split(" - ", 1)[-1]).replace("silos", "silo")
+        if palabras and not palabras <= set(nombre.split()):
+            continue
+        parecido = difflib.SequenceMatcher(None, buscado, nombre).ratio()
+        if parecido > puntaje:
+            mejor, puntaje = opcion, parecido
+    return mejor
 
 
 def _numeros(texto: str) -> set[str]:
@@ -280,19 +300,25 @@ def _numeros(texto: str) -> set[str]:
 
 
 def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
-    """'El Bagual-lote 15 | Soja ESP | 25/26' -> '02836 - El Bagual LTV 15 SOJA ESP 25/26'.
+    """'El Bagual | 5-6 | Maiz ESP | 25/26' -> '02834 - El Bagual 5-6 MAIZ ESP 25/26'.
 
-    Solo se sugiere un cultivo de la misma especie, cuyo nombre empiece con
-    el del campo y que tenga los mismos números de lote: sugerir uno parecido
-    pero equivocado es peor que no sugerir, porque se confirma sin mirar.
-    Los códigos de cultivo de Albor sirven para más de una campaña (el nombre
-    dice la última), así que la campaña solo desempata.
+    En Albor el cultivo es un lote sembrado en una campaña, y su nombre junta
+    campo, lote, especie y campaña. Se sugiere solo si coinciden el campo (al
+    principio del nombre), la especie entera y los números del lote; si no, es
+    preferible no sugerir nada, porque una sugerencia equivocada se confirma
+    sin mirar. La campaña solo desempata: los códigos cambian de una a otra,
+    pero la plantilla exporta una sola.
     """
-    lote, especie, campana = clave_cultivo.split(" | ")
-    campo, _, numero_lote = lote.partition("-")
-    especie_n = _normalizar(especie).split()[0] if _normalizar(especie) else ""
+    partes = clave_cultivo.split(" | ")
+    if len(partes) != 4:
+        return ""
+    campo, lote, especie, campana = (x.strip() for x in partes)
     campo_n = _normalizar(campo)
-    mejor, puntaje, candidatos = "", 0.0, []
+    especie_n = set(_normalizar(especie).split())
+    if not campo_n or not especie_n:
+        return ""
+
+    mejor, puntaje, candidatos = "", -1.0, []
     for opcion in opciones:
         descripcion = opcion.split(" - ", 1)[-1].strip()
         m = re.search(r"\s*(\d{2}/\d{2})$", descripcion)
@@ -300,24 +326,35 @@ def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
         if m:
             descripcion = descripcion[: m.start()]
         normalizada = _normalizar(descripcion)
-        if especie_n not in normalizada.split() or not normalizada.startswith(campo_n):
+        if not normalizada.startswith(campo_n):
+            continue
+        palabras = set(normalizada.split())
+        # "SOJA" y "SOJA ESP" son especies distintas en Albor.
+        if not especie_n <= palabras:
             continue
         resto = normalizada[len(campo_n):]
-        if _numeros(numero_lote) != _numeros(resto):
+        if _numeros(lote) != _numeros(resto):
             continue
         # Las palabras del lote ("Entrada", "Fondo") también tienen que estar.
-        palabras = set(re.findall(r"[a-z]+", _normalizar(numero_lote))) - {"lote"}
-        if not palabras <= set(resto.split()):
+        del_lote = set(re.findall(r"[a-z]+", _normalizar(lote))) - {"lote"}
+        if not del_lote <= set(resto.split()):
             continue
         candidatos.append(opcion)
-        parecido = difflib.SequenceMatcher(None, _normalizar(f"{lote} {especie}"), normalizada).ratio()
+        parecido = difflib.SequenceMatcher(
+            None, _normalizar(f"{campo} {lote} {especie}"), normalizada).ratio()
         parecido += 1 if misma_campana else 0
         if parecido > puntaje:
             mejor, puntaje = opcion, parecido
-    # Sin lote en SoftCereal ("La Nutria-"), solo si el campo tiene un único cultivo.
-    if not _normalizar(numero_lote) and len(candidatos) != 1:
+    # Sin lote en el ERP (Batitú, La Nutria), solo si el campo tiene un cultivo.
+    if not _normalizar(lote) and len(candidatos) != 1:
         return ""
     return mejor
+
+
+def _cuit(valor: str) -> str:
+    """'30712514112' y '30-71251411-2' -> '30-71251411-2' (como lo guarda Albor)."""
+    digitos = re.sub(r"\D", "", valor or "")
+    return f"{digitos[:2]}-{digitos[2:10]}-{digitos[10]}" if len(digitos) == 11 else ""
 
 
 def _transportista(nombre: str, lista: list[str]) -> str:
@@ -407,8 +444,100 @@ def leer_softcereal(filas_planilla: list[list[str]]) -> list[dict]:
     for numero, datos in enumerate(filas_planilla[1:], start=2):
         fila = {campo: (datos[i].strip() if i < len(datos) else "") for campo, i in indices.items()}
         fila["fila"] = numero
+        fila["origen"] = "softcereal"
+        # "El Bagual-lote 5-6" -> campo "El Bagual", lote "5-6": la misma forma
+        # que trae Oracle, así la tabla de equivalencias es una sola.
+        campo, _, lote = (fila.get("lote") or "").partition("-")
+        fila["campo"] = campo.strip()
+        fila["lote"] = re.sub(r"^lote\s*", "", lote.strip(), flags=re.I)
+        fila["especie"] = _sin_cosecha(fila.get("especie", ""))
+        fila["planta_codigo"] = fila.get("planta", "")
+        fila["chofer_dni"] = fila.get("chofer", "")
         ingresos.append(fila)
     return ingresos
+
+
+def leer_oracle(filas: list[dict]) -> list[dict]:
+    """Filas de oracle.buscar() -> la misma forma que leer_softcereal().
+
+    Los datos ya vienen con su tipo (fechas, números), así que se pasan a texto
+    una sola vez acá y el resto de la conversión no se entera de dónde salieron.
+    """
+    def texto(valor) -> str:
+        if valor is None:
+            return ""
+        if isinstance(valor, datetime):
+            return valor.strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(valor, float) and valor.is_integer():
+            return str(int(valor))
+        return str(valor).strip()
+
+    ingresos = []
+    for numero, fila in enumerate(filas, start=1):
+        ingresos.append({
+            "fila": numero,
+            "origen": "oracle",
+            "esquema": texto(fila.get("esquema")),
+            "sociedad": texto(fila.get("sociedad")),
+            "ctg": texto(fila.get("ctg")),
+            "punto_ingreso": texto(fila.get("punto_ingreso")),
+            "numero_ingreso": texto(fila.get("numero_ingreso")),
+            "ingreso": f"{texto(fila.get('punto_ingreso'))}-{texto(fila.get('numero_ingreso'))}",
+            "cosecha": texto(fila.get("cosecha")),
+            "especie": texto(fila.get("especie")) or texto(fila.get("especie_codigo")),
+            "campo": texto(fila.get("campo")),
+            "lote": texto(fila.get("lote")),
+            "planta_codigo": texto(fila.get("planta_codigo")),
+            "planta": texto(fila.get("planta")),
+            "fecha": texto(fila.get("fecha_carga")) or texto(fila.get("fecha_hora")),
+            "bruto": texto(fila.get("bruto")),
+            "tara": texto(fila.get("tara")),
+            "humedad": texto(fila.get("humedad")),
+            "estimado": texto(fila.get("kilos_estimados")),
+            "km": texto(fila.get("kilometros")),
+            "transportista": texto(fila.get("transportista")),
+            "cuit_transportista": texto(fila.get("cuit_transportista")),
+            "chofer": texto(fila.get("chofer")),
+            "cuit_chofer": texto(fila.get("cuit_chofer")),
+            "sucursal_cpe": texto(fila.get("sucursal_cpe")),
+            "numero_cpe": texto(fila.get("numero_cpe")),
+            "observaciones": texto(fila.get("observaciones")),
+        })
+    return ingresos
+
+
+# ---------------------------------------------------------------------------
+# Número de ticket
+# ---------------------------------------------------------------------------
+
+def _clave_ticket(ingreso: dict) -> str:
+    return "|".join((
+        ingreso.get("esquema", ""),
+        ingreso.get("punto_ingreso", ""),
+        ingreso.get("numero_ingreso", "") or ingreso.get("ingreso", ""),
+    ))
+
+
+def asignar_tickets(ingresos: list[dict]) -> None:
+    """Numera los ingresos de forma correlativa, arriba de TICKET_DESDE.
+
+    El número queda guardado por ingreso: si la misma tanda se vuelve a
+    convertir, sale el mismo ticket y no se duplica nada en Albor.
+    """
+    mapa = json.loads(TICKETS.read_text(encoding="utf-8")) if TICKETS.is_file() else {}
+    usados = [int(v) for v in mapa.values() if str(v).isdigit()]
+    siguiente = max(usados + [TICKET_DESDE]) + 1
+    nuevos = False
+    for ingreso in ingresos:
+        clave_t = _clave_ticket(ingreso)
+        if clave_t not in mapa:
+            mapa[clave_t] = str(siguiente)
+            siguiente += 1
+            nuevos = True
+        ingreso["ticket"] = mapa[clave_t]
+    if nuevos:
+        ALBOR_DIR.mkdir(parents=True, exist_ok=True)
+        _escribir_atomico(TICKETS, json.dumps(mapa, ensure_ascii=False, indent=1, sort_keys=True).encode())
 
 
 # ---------------------------------------------------------------------------
@@ -422,11 +551,20 @@ def _campana(cosecha: str) -> str:
 
 
 def clave(tipo: str, ingreso: dict) -> str:
+    """El texto que identifica lo que hay que traducir, y que se le muestra al
+    usuario en la pantalla de equivalencias."""
+    especie = _sin_cosecha(ingreso.get("especie", ""))
     if tipo == "especie":
-        return _sin_cosecha(ingreso["especie"])
+        return especie
     if tipo == "cultivo":
-        return f"{ingreso['lote']} | {_sin_cosecha(ingreso['especie'])} | {_campana(ingreso['cosecha'])}"
-    return f"Planta {ingreso['planta']}"  # deposito y destino
+        campo = (ingreso.get("campo") or "").strip()
+        lote = (ingreso.get("lote") or "").strip()
+        return f"{campo} | {lote} | {especie} | {_campana(ingreso.get('cosecha', ''))}"
+    # deposito y destino: el código de planta manda, la descripción es para leerlo
+    codigo_planta = ingreso.get("planta_codigo") or ingreso.get("planta", "")
+    descripcion = (ingreso.get("planta") or "").strip()
+    nombre = f"Planta {codigo_planta}"
+    return f"{nombre} - {descripcion}" if descripcion and descripcion != nombre else nombre
 
 
 def pendientes(ingresos: list[dict], refs: dict) -> dict[str, list[dict]]:
@@ -515,21 +653,24 @@ def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
 
     campana = _campana(ingreso["cosecha"])
 
-    chofer = _chofer(ingreso.get("chofer", ""), listas["chofer"])
+    # El CUIT del chofer sale del ERP cuando se consulta Oracle; desde el Excel
+    # de SoftCereal solo viene el DNI y hay que buscarlo en la lista de Albor.
+    chofer = _cuit(ingreso.get("cuit_chofer", "")) or _chofer(
+        ingreso.get("chofer_dni") or ingreso.get("chofer", ""), listas["chofer"])
     transportista = _transportista(ingreso.get("transportista", ""), listas["transportista"])
     if ingreso.get("transportista") and not transportista:
         fila.avisos.append(f"Transportista sin código en Albor: {ingreso['transportista']}")
     if ingreso.get("chofer") and not chofer:
-        fila.avisos.append(f"Chofer sin CUIT en Albor: DNI {ingreso['chofer']}")
+        fila.avisos.append(f"Chofer sin CUIT en Albor: {ingreso['chofer']}")
 
     observaciones = " · ".join(p for p in (
-        f"SoftCereal ingreso {ingreso['ingreso']}" if ingreso.get("ingreso") else "",
+        f"{ingreso.get('sociedad') or 'SoftCereal'} ingreso {ingreso['ingreso']}" if ingreso.get("ingreso") else "",
         ingreso.get("observaciones", ""),
     ) if p)[:250]
 
     v.update({
         "Fecha": fecha,
-        "Número de ticket": ingreso.get("ticket", "").replace(" ", "-"),
+        "Número de ticket": (ingreso.get("ticket") or "").replace(" ", "-"),
         "Código campaña": campana,
         "Código especie": equivalente("especie", True, "especie"),
         # Albor tiene un solo tipo de grano ("UNICO"): si es así, va ese.
@@ -600,6 +741,7 @@ class Resultado:
 
 def convertir(ingresos: list[dict], refs: dict, ya_en_albor: list[dict] | None = None) -> Resultado:
     equiv = equivalencias()
+    asignar_tickets(ingresos)
     filas, repetidos, vistos = [], [], set()
     for ingreso in ingresos:
         fila = _armar(ingreso, refs, equiv)
@@ -624,14 +766,17 @@ def separar_cargados(ingresos: list[dict], ctgs: set[str]) -> tuple[list[dict], 
 # Tandas: las filas leídas, mientras se confirman las equivalencias
 # ---------------------------------------------------------------------------
 
-def guardar_tanda(ingresos: list[dict], origen: str, ya_en_albor: list[dict] | None = None) -> str:
+def guardar_tanda(ingresos: list[dict], origen: str, ya_en_albor: list[dict] | None = None,
+                  faltantes: list[str] | None = None) -> str:
     TANDAS.mkdir(parents=True, exist_ok=True)
     limite = datetime.now() - RETENCION_TANDAS
     for vieja in TANDAS.glob("*.json"):
         if datetime.fromtimestamp(vieja.stat().st_mtime) < limite:
             vieja.unlink(missing_ok=True)
     tanda = uuid.uuid4().hex
-    (TANDAS / f"{tanda}.json").write_text(json.dumps({"origen": origen, "ingresos": ingresos, "ya_en_albor": ya_en_albor or []}, ensure_ascii=False))
+    (TANDAS / f"{tanda}.json").write_text(json.dumps({"origen": origen, "ingresos": ingresos,
+                    "ya_en_albor": ya_en_albor or [], "faltantes": faltantes or []},
+                   ensure_ascii=False))
     return tanda
 
 

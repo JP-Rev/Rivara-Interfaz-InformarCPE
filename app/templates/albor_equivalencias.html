@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}Equivalencias SoftCereal → Albor{% endblock %}
+{% block titulo %}Equivalencias a Albor{% endblock %}
 
 {% block titulo_pagina %}
 <div class="ic-titulo">
@@ -15,7 +15,7 @@
   {% if tanda %}
     <p class="ic-ayuda">
       {% if origen %}En <strong>{{ origen }}</strong> hay{% else %}Hay{% endif %}
-      nombres de SoftCereal que todavía no tienen su código de Albor. Elegilo
+      nombres del ERP que todavía no tienen su código de Albor. Elegilo
       de la lista (se puede escribir para buscar) o escribí el código. Queda
       guardado: la próxima vez no se pregunta.
     </p>
@@ -40,7 +40,7 @@
     </datalist>
     <div class="ic-tabla-scroll">
       <table class="rv-tabla ic-equivalencias">
-        <thead><tr><th>SoftCereal</th>{% if tanda %}<th>Filas</th>{% endif %}<th>Albor</th></tr></thead>
+        <thead><tr><th>En el ERP</th>{% if tanda %}<th>Filas</th>{% endif %}<th>Albor</th></tr></thead>
         <tbody>
           {% for item in g.entradas %}
             {% set n.i = n.i + 1 %}

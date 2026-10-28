@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block titulo %}SoftCereal → Albor{% endblock %}
+{% block titulo %}CPE a Albor{% endblock %}
 
 {% macro zona(nombre, titulo, detalle, aceptar) %}
   <label class="ic-soltar" data-zona>
@@ -18,25 +18,44 @@
 
 {% block titulo_pagina %}
 <div class="ic-titulo">
-  <h2>Exportación de SoftCereal</h2>
-  <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
+  <h2>CPE a Albor</h2>
 </div>
 {% endblock %}
 
 {% block contenido %}
 
 <form class="rv-card ic-tarjeta" method="post" action="/albor" enctype="multipart/form-data" data-formulario>
-  <p class="ic-ayuda">
-    Arrastrá la exportación de ingresos de SoftCereal (el Excel del editor SQL).
-    La app arma la planilla de importación de cosechas de Albor. Lo que en
-    SoftCereal se llama distinto que en Albor (el campo y lote, la planta) se
-    confirma una sola vez y queda guardado para las próximas.
-  </p>
+  {% if oracle_listo %}
+    <p class="ic-ayuda">
+      Pegá los números de CTG. La app los busca en el ERP
+      ({% for e, n in esquemas.items() %}{{ n }}{% if not loop.last %}, {% endif %}{% endfor %})
+      y arma la planilla de importación de cosechas de Albor. Lo que en el ERP
+      se llama distinto que en Albor (el campo y lote, la planta) se confirma
+      una sola vez y queda guardado.
+    </p>
+  {% else %}
+    <p class="rv-nota rv-nota--info">
+      El ERP no está configurado, así que hay que subir la exportación de
+      SoftCereal. Para leer los CTG directo de la base falta en el
+      <code>.env</code>: {{ problemas_oracle | join('; ') }}.
+    </p>
+  {% endif %}
 
   {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
   {% if ok_plantilla %}<p class="rv-nota rv-nota--ok">{{ ok_plantilla }}</p>{% endif %}
 
-  {{ zona("archivo", "Soltá acá la exportación de SoftCereal", "o tocá para elegirla — .xlsx o .xls", ".xlsx,.xls") }}
+  {% if oracle_listo %}
+  <label class="rv-campo">
+    <span class="rv-label">Números de CTG</span>
+    <textarea class="rv-input ic-ctgs" name="ctgs" rows="6" autofocus
+              placeholder="10134580361&#10;10134826591&#10;…"></textarea>
+  </label>
+  <p class="rv-meta" id="contador-ctg"></p>
+  {% endif %}
+
+  {% if not oracle_listo %}
+    {{ zona("archivo", "Soltá acá la exportación de SoftCereal", "o tocá para elegirla — .xlsx o .xls", ".xlsx,.xls") }}
+  {% endif %}
 
   {% if refs %}
     <details class="ic-plegable">
@@ -47,34 +66,34 @@
       </summary>
       <p class="ic-ayuda">
         Cuando en Albor se den de alta lotes o campañas nuevas, bajá la
-        plantilla (ImportacionCosecha.xlsx) de nuevo y soltala acá, junto con la
-        exportación o sola.
+        plantilla (ImportacionCosecha.xlsx) de nuevo y soltala acá.
       </p>
       {{ zona("plantilla", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
     </details>
   {% else %}
     <p class="ic-ayuda">
-      <strong>La primera vez, también la plantilla de Albor:</strong> en Albor,
+      <strong>La primera vez, la plantilla de Albor:</strong> en Albor,
       Comprobantes de Cosecha → importar, bajá ImportacionCosecha.xlsx y soltala
-      acá abajo. Queda guardada en el servidor: las próximas veces alcanza con
-      la exportación.
+      acá abajo. Queda guardada en el servidor; de ahí salen los códigos.
     </p>
     {{ zona("plantilla", "Soltá acá ImportacionCosecha.xlsx", "o tocá para elegirla — .xlsx", ".xlsx") }}
   {% endif %}
 
-  <details class="ic-plegable" {% if not refs %}open{% endif %}>
+  <details class="ic-plegable">
     <summary>Opcional: dejar afuera lo que ya está cargado en Albor</summary>
     <p class="ic-ayuda">
       En Albor, Comprobantes de Acopio, exportá la grilla a Excel
-      (AlborExcel.xls) con el mismo rango de fechas y soltala acá: los CTG que
-      ya figuran ahí no van a la planilla, así no se cargan dos veces.
+      (AlborExcel.xls) y soltala acá: los CTG que ya figuran ahí no van a la
+      planilla, así no se cargan dos veces.
     </p>
     {{ zona("listado", "Soltá acá AlborExcel.xls", "o tocá para elegirlo — .xls", ".xls,.xlsx,.html") }}
   </details>
 
   <div class="ic-acciones">
-    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Leyendo…">Generar la planilla de Albor</button>
-    <span class="rv-meta">Da igual en qué recuadro sueltes cada archivo: la app reconoce cuál es cuál.</span>
+    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Buscando…">
+      {% if oracle_listo %}Buscar en el ERP y generar{% else %}Generar la planilla de Albor{% endif %}
+    </button>
+    <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
   </div>
 </form>
 
@@ -82,22 +101,22 @@
   <h3>Qué va en cada columna de Albor</h3>
   <div class="ic-tabla-scroll">
     <table class="rv-tabla">
-      <thead><tr><th>Albor</th><th>Sale de SoftCereal</th></tr></thead>
+      <thead><tr><th>Albor</th><th>Sale del ERP</th></tr></thead>
       <tbody>
-        <tr><td>Fecha, Fecha Partida</td><td>Fecha de la orden de carga</td></tr>
-        <tr><td>Número de ticket</td><td>Número de ticket</td></tr>
+        <tr><td>Fecha, Fecha Partida</td><td>Fecha y hora de la orden de carga</td></tr>
+        <tr><td>Número de ticket</td><td>correlativo propio, arriba de {{ "{:,}".format(ticket_desde).replace(",", ".") }}</td></tr>
         <tr><td>Código campaña</td><td>Cosecha (<code>2526</code> → <code>25/26</code>)</td></tr>
-        <tr><td>Código especie</td><td>Especie (equivalencia: <code>Soja ESP</code> → <code>SOJA ESPECIAL</code>)</td></tr>
-        <tr><td>Tipo de Grano</td><td>El único de Albor (<code>UNICO</code>)</td></tr>
-        <tr><td>Código cultivo</td><td>Campo-lote + especie + campaña (equivalencia)</td></tr>
-        <tr><td>Código depósito destino, Código destino</td><td>Planta (equivalencia)</td></tr>
-        <tr><td>Peso Origen y Peso Destino Bruto / Tara / Neto</td><td>Peso Bruto Reconocido / Tara / bruto − tara (origen = destino)</td></tr>
-        <tr><td>% Humedad Destino</td><td>Humedad</td></tr>
-        <tr><td>Código transportista</td><td>Empresa de transporte, buscada por nombre en Albor</td></tr>
-        <tr><td>Chofer (CUIT)</td><td>DNI del conductor, buscado en los CUIT de Albor</td></tr>
+        <tr><td>Código especie</td><td>Especie (equivalencia: <code>Maiz ESP</code> → <code>MAIZ ESPECIAL</code>)</td></tr>
+        <tr><td>Tipo de Grano</td><td>el único que tiene Albor (<code>UNICO</code>)</td></tr>
+        <tr><td>Código cultivo</td><td>campo + lote + especie + campaña (equivalencia)</td></tr>
+        <tr><td>Código depósito destino, Código destino</td><td>planta del ingreso (equivalencia)</td></tr>
+        <tr><td>Peso Origen y Peso Destino Bruto / Tara / Neto</td><td>peso bruto reconocido y tara (origen = destino)</td></tr>
+        <tr><td>% Humedad Destino</td><td>humedad</td></tr>
+        <tr><td>Código transportista</td><td>empresa de transporte, buscada por nombre en Albor</td></tr>
+        <tr><td>Chofer (CUIT)</td><td>CUIT del camionero, cruzando con la tabla de entidades</td></tr>
         <tr><td>Tipo CPE / Carta de Porte / CTG</td><td><code>E</code> / CTG / CTG</td></tr>
         <tr><td>Tipo de Flete · Flete Corto · Obtener CTG · Obtener COT</td><td><code>T</code> · <code>No</code> · <code>No</code> · <code>No</code></td></tr>
-        <tr><td>Observaciones remitente</td><td>Número de ingreso + Observaciones Orden de Carga</td></tr>
+        <tr><td>Observaciones remitente</td><td>sociedad y número de ingreso + observaciones de la orden de carga</td></tr>
         <tr><td>Código tipo de comprobante, Código socio, resto</td><td>vacío (el tipo de comprobante se carga a mano en Albor)</td></tr>
       </tbody>
     </table>
@@ -124,9 +143,25 @@
   })
   ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!e.target.closest('[data-zona]')) e.preventDefault() }))
   document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', (e) => {
-    const hay = [...f.querySelectorAll('input[type=file]')].some((i) => i.files.length)
-    if (!hay) { e.preventDefault(); f.querySelector('[data-zona]').classList.add('ic-soltar--encima'); return }
+    const texto = f.querySelector('textarea[name=ctgs]')
+    const hay = (texto && texto.value.trim()) ||
+      [...f.querySelectorAll('input[type=file]')].some((i) => i.files.length)
+    if (!hay) { e.preventDefault(); (texto || f.querySelector('[data-zona]')).focus(); return }
     const b = f.querySelector('[data-enviar]'); b.disabled = true; b.textContent = b.dataset.enviar
   }))
 </script>
 {% endblock %}
+
+<script>
+  // Cuenta los CTG a medida que se pegan, igual que en la pantalla de Visec.
+  const campoCtg = document.querySelector('textarea[name=ctgs]')
+  if (campoCtg) {
+    const contador = document.getElementById('contador-ctg')
+    const contar = () => {
+      const n = new Set(campoCtg.value.match(/\d{11}/g) || []).size
+      contador.textContent = n ? `${n} CTG` : ''
+    }
+    campoCtg.addEventListener('input', contar)
+    contar()
+  }
+</script>

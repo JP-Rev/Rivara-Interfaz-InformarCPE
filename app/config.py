@@ -126,6 +126,18 @@ class Config:
     # en segundo plano y no hay un navegador del que sacar el host.
     app_url: str = os.getenv("APP_URL", "").strip().rstrip("/")
 
+    # Oracle del ERP (SoftCereal). Lectura de los ingresos a planta por CTG.
+    # ORACLE_DSN tiene la forma host:puerto/service_name.
+    # ORACLE_ESQUEMAS lista los esquemas a consultar: uno por sociedad, con el
+    # nombre que se muestra en pantalla. Una sola conexion los lee a todos.
+    oracle_dsn: str = os.getenv("ORACLE_DSN", "").strip()
+    oracle_usuario: str = os.getenv("ORACLE_USUARIO", "").strip()
+    oracle_clave: str = os.getenv("ORACLE_PASSWORD", "")
+    oracle_esquemas: dict[str, str] = field(default_factory=lambda: _mapa("ORACLE_ESQUEMAS"))
+    # Carpeta del Instant Client. Hace falta el modo "thick" porque la base es
+    # 11.2 y el modo "thin" de oracledb necesita 12.1 o posterior.
+    oracle_lib_dir: str = os.getenv("ORACLE_LIB_DIR", "").strip()
+
     # ARCA mueve los endpoints cada tanto (y migro de afip.gob.ar a arca.gob.ar),
     # asi que las URL se pueden pisar desde el .env sin tocar el codigo.
     url_wsaa_override: str = os.getenv("ARCA_URL_WSAA", "").strip()
@@ -142,6 +154,22 @@ class Config:
         # Se le habla al endpoint, no al WSDL: si quedo "?wsdl" de una
         # configuracion anterior, se saca.
         return url.split("?", 1)[0]
+
+    @property
+    def oracle_listo(self) -> bool:
+        return bool(self.oracle_dsn and self.oracle_usuario and self.oracle_esquemas)
+
+    def problemas_oracle(self) -> list[str]:
+        faltan = []
+        if not self.oracle_dsn:
+            faltan.append("ORACLE_DSN (host:puerto/service_name)")
+        if not self.oracle_usuario:
+            faltan.append("ORACLE_USUARIO")
+        if not self.oracle_clave:
+            faltan.append("ORACLE_PASSWORD")
+        if not self.oracle_esquemas:
+            faltan.append("ORACLE_ESQUEMAS (formato ESQUEMA:Nombre,OTRO:Nombre)")
+        return [f"Falta {f} en el .env" for f in faltan]
 
     @property
     def cuits(self) -> list[str]:

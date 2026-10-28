@@ -25,7 +25,20 @@
       <span class="ic-resumen-numero rv-num">{{ resultado.repetidos | length }}</span>
       <span class="ic-resumen-etiqueta">CTG repetidos</span>
     </div>
-    {% if resultado.ya_en_albor %}
+    {% if faltantes %}
+<div class="rv-card ic-tarjeta">
+  <h3>{{ faltantes | length }} CTG no están en el ERP</h3>
+  <p class="ic-ayuda">
+    No se encontró ningún ingreso con estos números. Revisá que estén bien
+    tipeados y que el ingreso ya esté cargado en SoftCereal.
+  </p>
+  <ul class="ic-lista ic-lista--compacta">
+    {% for c in faltantes %}<li class="rv-num">{{ c }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if resultado.ya_en_albor %}
     <div class="ic-resumen-dato">
       <span class="ic-resumen-numero rv-num">{{ resultado.ya_en_albor | length }}</span>
       <span class="ic-resumen-etiqueta">ya estaban en Albor</span>
@@ -43,8 +56,8 @@
     </div>
     {% if resultado.con_error %}
       <p class="rv-nota rv-nota--info">
-        Las filas con error no están en la planilla. Corregilas en SoftCereal y
-        volvé a exportar, o cargalas a mano en Albor.
+        Las filas con error no están en la planilla. Corregilas en el ERP y
+        volvé a generarla, o cargalas a mano en Albor.
       </p>
     {% else %}
       <p class="rv-nota rv-nota--ok">Todas las filas pasaron las validaciones.</p>

@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 
 from .config import BASE_DIR, config
 from . import albor
+from . import oracle
 from .planillas import filas as filas_planilla
 from . import certificados
 from .correo import ErrorCorreo, enviar as enviar_mail, problemas_correo
@@ -582,7 +583,9 @@ def _pagina_albor(request: Request, usuario: dict, status_code: int = 200, **ext
     return plantillas.TemplateResponse(
         request, "albor.html",
         _contexto(request, usuario, seccion="albor", refs=albor.referencias(),
-                  equivalencias=albor.equivalencias(), **extra),
+                  equivalencias=albor.equivalencias(),
+                  oracle_listo=config.oracle_listo, problemas_oracle=config.problemas_oracle(),
+                  esquemas=config.oracle_esquemas, ticket_desde=albor.TICKET_DESDE, **extra),
         status_code=status_code,
     )
 
@@ -598,13 +601,15 @@ def ver_albor(request: Request):
 @app.post("/albor", response_class=HTMLResponse)
 async def generar_albor(
     request: Request,
+    ctgs: str = Form(""),
     archivo: UploadFile | None = File(None),
     plantilla: UploadFile | None = File(None),
     listado: UploadFile | None = File(None),
 ):
-    """Un solo paso: la exportación de SoftCereal y, si hace falta, la
-    plantilla de Albor. Cada archivo se reconoce por su contenido, así que da
-    igual en qué recuadro se haya soltado."""
+    """Los CTG salen del ERP (Oracle) o, si no hay base configurada, de la
+    exportación de SoftCereal. La plantilla de Albor y el listado de
+    comprobantes son archivos, y se reconocen por su contenido: da igual en qué
+    recuadro se hayan soltado."""
     usuario = _con_sesion(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
@@ -640,22 +645,47 @@ async def generar_albor(
             )
 
     if not albor.referencias():
-        return error("Falta la plantilla de importación de Albor (ImportacionCosecha.xlsx): soltala en el segundo recuadro.")
-    if softcereal is None:
+        return error("Falta la plantilla de importación de Albor: soltá el ImportacionCosecha.xlsx que bajás de Albor.")
+    pedidos = list(dict.fromkeys(CTG.findall(ctgs or "")))
+    if (ctgs or "").strip() and not pedidos:
+        return error("No encontré ningún CTG. Son 11 dígitos; uno por línea o separados por coma.")
+    if not pedidos and softcereal is None:
         if cargados is not None:
-            return error("Con el listado de Albor hace falta también la exportación de SoftCereal.")
-        return _pagina_albor(request, usuario, ok_plantilla="Plantilla de Albor cargada. Ahora soltá la exportación de SoftCereal.")
-    try:
-        ingresos = albor.leer_softcereal(filas_planilla(softcereal))
-    except albor.ErrorArchivo as e:
-        return error(str(e))
-    except Exception as e:  # planilla dañada o de un formato raro
-        log.warning("No se pudo leer %s: %s", nombre, e)
-        return error(f"No se pudo leer la planilla: {e}")
+            return error("Con el listado de Albor hacen falta también los CTG.")
+        return _pagina_albor(request, usuario, ok_plantilla="Plantilla de Albor cargada. Ahora pegá los CTG.")
+
+    faltantes: list[str] = []
+    if pedidos:
+        if len(pedidos) > MAX_CTG:
+            return error(f"Son {len(pedidos)} CTG y el máximo por tanda es {MAX_CTG}.")
+        try:
+            filas = await asyncio.to_thread(oracle.buscar, pedidos)
+        except oracle.ErrorOracle as e:
+            return error(str(e))
+        except Exception as e:
+            log.exception("Error consultando Oracle")
+            return error(f"Error consultando el ERP: {e}")
+        ingresos = albor.leer_oracle(filas)
+        encontrados = {i["ctg"] for i in ingresos}
+        faltantes = [c for c in pedidos if c not in encontrados]
+        nombre = f"{len(ingresos)} CTG del ERP"
+        if not ingresos:
+            return error(
+                "Ninguno de esos CTG está en el ERP. Revisá los números, o que el "
+                "ingreso ya esté cargado en SoftCereal."
+            )
+    else:
+        try:
+            ingresos = albor.leer_softcereal(filas_planilla(softcereal))
+        except albor.ErrorArchivo as e:
+            return error(str(e))
+        except Exception as e:  # planilla dañada o de un formato raro
+            log.warning("No se pudo leer %s: %s", nombre, e)
+            return error(f"No se pudo leer la planilla: {e}")
     ya_en_albor: list[dict] = []
     if cargados:
         ingresos, ya_en_albor = albor.separar_cargados(ingresos, cargados)
-    tanda = albor.guardar_tanda(ingresos, nombre or "", ya_en_albor)
+    tanda = albor.guardar_tanda(ingresos, nombre or "", ya_en_albor, faltantes)
     return _seguir_tanda(request, usuario, tanda)
 
 
@@ -673,6 +703,7 @@ def _seguir_tanda(request: Request, usuario: dict, tanda: str):
                       grupos=_grupos_equivalencias({t: faltan[t] for t in faltan}), listas=refs["listas"]),
         )
     resultado = albor.convertir(datos["ingresos"], refs, datos.get("ya_en_albor"))
+    faltantes = datos.get("faltantes") or []
     nombre = ""
     if resultado.validas:
         purgar_todo()
@@ -683,7 +714,7 @@ def _seguir_tanda(request: Request, usuario: dict, tanda: str):
     return plantillas.TemplateResponse(
         request, "albor_resultado.html",
         _contexto(request, usuario, seccion="albor", resultado=resultado, archivo=nombre,
-                  origen=datos["origen"], columnas=albor.COLUMNAS_USADAS),
+                  origen=datos["origen"], columnas=albor.COLUMNAS_USADAS, faltantes=faltantes),
     )
 
 

@@ -1,4 +1,11 @@
-FROM python:3.12-slim
+# bookworm explicito: en trixie la libreria libaio pasa a llamarse
+# libaio.so.1t64 y el Instant Client, que busca libaio.so.1, no arranca.
+FROM python:3.12-slim-bookworm
+
+# Oracle Instant Client. Hace falta porque la base del ERP es 11.2 y el modo
+# "thin" de python-oracledb (sin cliente) necesita 12.1 o posterior. El
+# paquete "basiclite" alcanza: son solo consultas, sin soporte de idiomas.
+ARG INSTANT_CLIENT=https://download.oracle.com/otn_software/linux/instantclient/1928000/instantclient-basiclite-linux.x64-19.28.0.0.0dbru.zip
 
 # tzdata: las fechas que se informan son locales, no UTC.
 ENV PYTHONUNBUFFERED=1 \
@@ -7,8 +14,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /srv
 
+# ldconfig y no lib_dir: en Linux el Instant Client se busca por la ruta de
+# librerias del sistema, pasarselo a oracledb por parametro no alcanza.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata \
+ && apt-get install -y --no-install-recommends tzdata libaio1 curl unzip \
+ && curl -sSLo /tmp/ic.zip "$INSTANT_CLIENT" \
+ && unzip -q /tmp/ic.zip -d /opt \
+ && rm /tmp/ic.zip \
+ && echo /opt/instantclient_19_28 > /etc/ld.so.conf.d/oracle.conf \
+ && ldconfig \
+ && apt-get purge -y curl unzip \
+ && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

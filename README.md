@@ -318,69 +318,109 @@ variable a `app/static/fuentes/archivo-variable.woff2` (está en el
 el CSS cae a la tipografía del sistema y la app funciona igual, solo se ve
 distinta.
 
-## Importar CPE SoftCereal → Albor
+## Importar CPE a Albor
 
-Segunda sección del menú lateral, para todos los usuarios. Toma la exportación
-de ingresos de SoftCereal (el Excel del editor SQL) y arma la planilla de
-**importación de comprobantes de cosecha** de Albor (`ImportacionCosecha.xlsx`,
-hoja **Cosechas a importar**).
+Segunda sección del menú lateral, para todos los usuarios. Se pegan los números
+de CTG, la app busca los ingresos a planta en el **ERP (Oracle)** y arma la
+planilla de importación de comprobantes de cosecha de Albor
+(`ImportacionCosecha.xlsx`, hoja **Cosechas a importar**).
+
+Antes esto salía de una exportación manual de SoftCereal. Esa vía sigue
+funcionando como respaldo: si no hay base configurada, la pantalla pide el
+Excel en vez de los CTG.
+
+### La conexión al ERP
+
+La base es **Oracle 11.2**, así que `python-oracledb` tiene que correr en modo
+"thick": el modo "thin" necesita 12.1 o posterior. Por eso la imagen trae el
+**Oracle Instant Client 19** (ver `Dockerfile`), y por eso la imagen base está
+fijada a `-bookworm`: en Debian 13 la librería `libaio.so.1` pasó a llamarse
+`libaio.so.1t64` y el cliente no arranca.
+
+En el `.env`:
+
+```
+ORACLE_DSN=192.168.0.20:1521/base          # host:puerto/service_name
+ORACLE_USUARIO=
+ORACLE_PASSWORD=
+ORACLE_ESQUEMAS=SYSADMIN:Rivara,SYSADMIN_ELN:La Tranquera Verde,SYSADMIN_PRA:Pradera Natural
+```
+
+Las tres sociedades son esquemas de la misma base: una sola conexión las lee a
+todas, y un CTG se busca en todas porque no se sabe de antemano en cuál está.
+El nombre del esquema se interpola en el SQL, así que **solo puede venir del
+`.env`**, nunca de la pantalla; los CTG van como bind variables.
+
+**El usuario de Oracle debería tener permiso de `SELECT` solamente**, no ser el
+dueño del esquema. La app nunca escribe en el ERP.
 
 ### La plantilla de Albor
 
-Se baja de Albor y se suelta en la misma pantalla, junto con la exportación de
-SoftCereal (la app reconoce cuál es cuál). Solo hace falta la primera vez y
-cuando cambian los códigos en Albor. Queda en
+Se baja de Albor y se sube desde la misma pantalla. Queda en
 `/storage/informarcpe/albor/plantilla_cosecha.xlsx`. **No va en el repositorio**:
-su hoja **Referencias** trae las listas de códigos de Albor (cultivos,
-depósitos, transportistas, choferes con su CUIT), y son datos de personas. La
-app lee esas listas una vez al cargarla (`referencias.json`) y en cada
-conversión copia la plantilla cambiando solo la hoja de datos: Referencias viaja
-intacta.
+su hoja **Referencias** trae nombres y CUIT de personas. La app lee esas listas
+una vez al cargarla (`referencias.json`) y en cada conversión copia la plantilla
+cambiando solo la hoja de datos, así Referencias viaja intacta.
 
-Cuando en Albor se den de alta lotes o una campaña nueva, se baja la plantilla
-de nuevo y se reemplaza.
+Ojo: la plantilla exporta **solo la campaña activa**. Si los ingresos son de una
+campaña anterior, sus cultivos no van a estar en la lista y hay que conseguir la
+plantilla de esa campaña.
 
 ### Equivalencias
 
-Lo que SoftCereal y Albor llaman distinto se traduce con una tabla que se
-confirma una sola vez y queda en `/storage/informarcpe/albor/equivalencias.json`:
+Lo que el ERP y Albor llaman distinto se traduce con una tabla que se confirma
+una sola vez y queda en `/storage/informarcpe/albor/equivalencias.json`:
 
-| Tipo | Clave de SoftCereal | Ejemplo en Albor |
+| Tipo | Clave del ERP | Ejemplo en Albor |
 |---|---|---|
-| Especie | `Soja ESP` | `1114 - SOJA ESPECIAL` (se resuelve sola si el nombre coincide) |
-| Cultivo | `El Bagual-lote 15 \| Soja ESP \| 25/26` | `02836 - El Bagual LTV 15 SOJA ESP 26/27` |
-| Depósito destino | `Planta 16` | `PSAA - Planta Silos Acceso Alberti` |
-| Destino (opcional) | `Planta 16` | `9 - Planta Silo Acceso Acceso Alberti` |
+| Especie | `Maiz ESP` | `1113 - MAIZ ESPECIAL` (se resuelve sola si el nombre coincide) |
+| Cultivo | `El Bagual \| 5-6 \| Maiz ESP \| 25/26` | `02834 - El Bagual 5-6 MAIZ ESP 25/26` |
+| Depósito destino | `Planta 16 - Planta de Silos Acceso` | `PSAA - Planta Silos Acceso Alberti` |
+| Destino (opcional) | `Planta 16 - Planta de Silos Acceso` | `9 - Planta Silo Acceso Acceso Alberti` |
+
+Los códigos de especie **no coinciden** entre los dos sistemas: `05` es
+`Maiz ESP` en el ERP y `CEBADA` en Albor. Por eso nunca se pasa el código del
+ERP tal cual; siempre va por la tabla.
 
 Si al convertir aparece algo sin equivalencia, la app la pide antes de armar la
-planilla, con una sugerencia cuando hay una segura: misma especie, mismo campo
-y mismos números de lote. Los códigos de cultivo de Albor valen para más de una
-campaña (el nombre muestra la última), así que la campaña solo desempata. Se puede elegir de la lista o escribir el
-código directamente. Se revisan y corrigen en **Equivalencias**
-(`/albor/equivalencias`).
+planilla, con una sugerencia cuando hay una segura. Se revisan en
+**Equivalencias** (`/albor/equivalencias`).
+
+### Número de ticket
+
+El del ERP no sirve en Albor, así que la app numera aparte, correlativo, desde
+`ALBOR_TICKET_DESDE` (1.000.000 por omisión). El número queda guardado por
+ingreso en `tickets.json`: si la misma tanda se convierte de nuevo, sale el
+mismo ticket y no se duplica nada.
 
 ### Columnas
 
-| Albor | SoftCereal |
+| Albor | Sale del ERP |
 |---|---|
-| Fecha, Fecha Partida | Fecha Hora Orden de Carga |
-| Número de ticket | NUMERO_TICKET |
-| Código campaña | Cosecha (`2526` → `25/26`) |
+| Fecha, Fecha Partida | `IPL_FECHA_HORA_CARGA` |
+| Número de ticket | correlativo propio |
+| Código campaña | `IPL_COSECHA` (`2526` → `25/26`) |
 | Código especie, Código cultivo | equivalencias |
-| Tipo de Grano | el único que tiene Albor (`00001`) |
-| Código depósito destino, Código destino | equivalencias por Planta |
-| Peso Origen y Peso Destino Bruto / Tara / Neto | Peso Bruto Reconocido / Tara / bruto − tara (origen = destino, como lo carga Albor) |
-| % Humedad Destino | Humedad |
-| Código transportista | Nombre Empresa de Transporte, buscado en la lista de Albor |
-| Chofer (CUIT) | Carnet Conductor (DNI), buscado dentro de los CUIT de Albor |
-| Tipo CPE / Carta de Porte / CTG | `E` / CTG / CTG (en Albor la carta de porte de una CPE es el CTG) |
-| Tipo de Flete, Flete Corto, Obtener CTG, Obtener COT | `T`, `No`, `No`, `No` (la CPE ya existe en ARCA) |
-| Observaciones remitente | número de ingreso + Observaciones Orden de Carga |
+| Tipo de Grano | el único de Albor (`00001`) |
+| Código depósito destino, Código destino | equivalencia por planta |
+| Peso Origen y Destino Bruto / Tara / Neto | `IPL_PESO_BRUTO_RECONOCIDO`, `IPL_TARA` (origen = destino) |
+| % Humedad Destino | `IPL_HUMEDAD` |
+| Código transportista | `IPL_NOMBRE_EMPRESA_TRANSPORTE`, buscado en la lista de Albor |
+| Chofer (CUIT) | `IPL_CAMIONERO` cruzado con `ENTIDADES` |
+| Tipo CPE / Carta de Porte / CTG | `E` / CTG / CTG |
+| Tipo de Flete, Flete Corto, Obtener CTG, Obtener COT | `T`, `No`, `No`, `No` |
+| Observaciones remitente | sociedad, número de ingreso y `IPL_OBSERVACIONES_CARGA` |
 | Código tipo de comprobante, Código socio y el resto | vacío |
 
 Una fila sin CTG válido, sin fecha, con tara mayor o igual al bruto o sin
 especie, cultivo o depósito queda afuera y se muestra. Un transportista o chofer
 que no está en Albor no frena la fila: va vacío y se avisa.
+
+### Lo que ya está en Albor
+
+Si se sube además el listado de comprobantes de acopio (`AlborExcel.xls`, que
+es una tabla HTML en UTF-16 con extensión `.xls`), los CTG que ya figuran ahí
+quedan afuera de la planilla para no cargarlos dos veces.
 
 Formato de los valores, ajustable en el `.env` si Albor los rechaza:
 
@@ -390,6 +430,7 @@ Formato de los valores, ajustable en el `.env` si Albor los rechaza:
 | `ALBOR_SEPARADOR_DECIMAL` | `,` | humedad `12,8` o `12.8` |
 | `ALBOR_FORMATO_FECHA` | `%d/%m/%Y` | fechas |
 | `ALBOR_TIPO_FLETE` | `T` | `T` Tercero, `I` Interno |
+| `ALBOR_TICKET_DESDE` | `1000000` | desde dónde numera los tickets |
 
 ## Qué columnas completa, y de dónde
 
