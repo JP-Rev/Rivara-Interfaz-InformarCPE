@@ -371,3 +371,9 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 .ic-plegable[open] summary { margin-bottom: 12px; }
 
 .ic-ctgs { font-family: var(--rv-fuente-num, inherit); min-height: 120px; resize: vertical; }
+
+.ic-cultivos { min-height: 280px; resize: vertical; font-size: 13px; line-height: 1.5; }
+.ic-ejemplo {
+  margin: 0; padding: 12px 14px; font-size: 13px; line-height: 1.6;
+  background: var(--rv-bg); border-radius: var(--rv-r-md); overflow-x: auto;
+}

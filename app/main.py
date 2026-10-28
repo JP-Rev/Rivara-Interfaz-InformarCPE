@@ -646,9 +646,10 @@ async def generar_albor(
 
     if not albor.referencias():
         return error("Falta la plantilla de importación de Albor: soltá el ImportacionCosecha.xlsx que bajás de Albor.")
-    pedidos = list(dict.fromkeys(CTG.findall(ctgs or "")))
-    if (ctgs or "").strip() and not pedidos:
-        return error("No encontré ningún CTG. Son 11 dígitos; uno por línea o separados por coma.")
+    pares, sueltas = albor.parsear_ctgs(ctgs)
+    if (ctgs or "").strip() and not pares:
+        return error("No encontré ningún CTG. Son 11 dígitos, uno por línea, con el número de ticket al lado.")
+    pedidos = [c for c, _ in pares]
     if not pedidos and softcereal is None:
         if cargados is not None:
             return error("Con el listado de Albor hacen falta también los CTG.")
@@ -666,6 +667,10 @@ async def generar_albor(
             log.exception("Error consultando Oracle")
             return error(f"Error consultando el ERP: {e}")
         ingresos = albor.leer_oracle(filas)
+        # El número de ticket lo escribe el usuario junto al CTG.
+        tickets = dict(pares)
+        for ingreso in ingresos:
+            ingreso["ticket"] = tickets.get(ingreso["ctg"], "")
         encontrados = {i["ctg"] for i in ingresos}
         faltantes = [c for c in pedidos if c not in encontrados]
         nombre = f"{len(ingresos)} CTG del ERP"
@@ -685,6 +690,8 @@ async def generar_albor(
     ya_en_albor: list[dict] = []
     if cargados:
         ingresos, ya_en_albor = albor.separar_cargados(ingresos, cargados)
+    if sueltas:
+        log.info("Líneas sin CTG en la entrada: %s", len(sueltas))
     tanda = albor.guardar_tanda(ingresos, nombre or "", ya_en_albor, faltantes)
     return _seguir_tanda(request, usuario, tanda)
 
@@ -700,7 +707,8 @@ def _seguir_tanda(request: Request, usuario: dict, tanda: str):
         return plantillas.TemplateResponse(
             request, "albor_equivalencias.html",
             _contexto(request, usuario, seccion="albor", tanda=tanda, origen=datos["origen"],
-                      grupos=_grupos_equivalencias({t: faltan[t] for t in faltan}), listas=refs["listas"]),
+                      grupos=_grupos_equivalencias({t: faltan[t] for t in faltan}),
+                      listas=dict(refs["listas"], cultivo=albor.lista_cultivos(refs))),
         )
     resultado = albor.convertir(datos["ingresos"], refs, datos.get("ya_en_albor"))
     faltantes = datos.get("faltantes") or []
@@ -726,6 +734,56 @@ def _grupos_equivalencias(items: dict[str, list[dict]]) -> list[dict]:
     ]
 
 
+@app.get("/albor/cultivos", response_class=HTMLResponse)
+def ver_cultivos(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    return _pagina_cultivos(request, usuario)
+
+
+def _pagina_cultivos(request: Request, usuario: dict, **extra):
+    refs = albor.referencias()
+    return plantillas.TemplateResponse(
+        request, "albor_cultivos.html",
+        _contexto(request, usuario, seccion="albor",
+                  cargados=albor.cultivos_cargados(),
+                  de_plantilla=(refs or {}).get("listas", {}).get("cultivo", []),
+                  **extra),
+    )
+
+
+@app.post("/albor/cultivos", response_class=HTMLResponse)
+async def guardar_cultivos(request: Request, archivo: UploadFile | None = File(None),
+                           cultivos: str = Form("")):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    if archivo is not None and archivo.filename:
+        contenido = await archivo.read()
+        if not albor.es_export_cultivos(contenido):
+            return _pagina_cultivos(
+                request, usuario,
+                error=f"«{archivo.filename}» no es la exportación de cultivos de Albor "
+                      "(tiene que tener las columnas ID_Cultivo, Nombre, Campo y Lote).")
+        try:
+            lista = await asyncio.to_thread(albor.importar_cultivos, contenido)
+        except albor.ErrorArchivo as e:
+            return _pagina_cultivos(request, usuario, error=str(e))
+        except Exception as e:
+            log.warning("No se pudo leer %s: %s", archivo.filename, e)
+            return _pagina_cultivos(request, usuario, error=f"No se pudo leer el archivo: {e}")
+        log.info("Usuario %s importó %s cultivos de Albor",
+                 usuario.get("email") or usuario.get("name"), len(lista))
+        campanas = ", ".join(sorted({c.get("campana") for c in lista if c.get("campana")})) or "sin campaña"
+        return _pagina_cultivos(request, usuario,
+                                ok=f"{len(lista)} cultivos importados. Campañas: {campanas}.")
+    lista = albor.guardar_cultivos(cultivos)
+    log.info("Usuario %s guardó %s cultivos de Albor",
+             usuario.get("email") or usuario.get("name"), len(lista))
+    return _pagina_cultivos(request, usuario, ok=f"{len(lista)} cultivos guardados.")
+
+
 @app.get("/albor/equivalencias", response_class=HTMLResponse)
 def ver_equivalencias(request: Request):
     usuario = _con_sesion(request)
@@ -740,7 +798,7 @@ def ver_equivalencias(request: Request):
     return plantillas.TemplateResponse(
         request, "albor_equivalencias.html",
         _contexto(request, usuario, seccion="albor", tanda="", grupos=_grupos_equivalencias(items),
-                  listas=refs["listas"]),
+                  listas=dict(refs["listas"], cultivo=albor.lista_cultivos(refs))),
     )
 
 

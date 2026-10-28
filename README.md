@@ -320,10 +320,18 @@ distinta.
 
 ## Importar CPE a Albor
 
-Segunda sección del menú lateral, para todos los usuarios. Se pegan los números
-de CTG, la app busca los ingresos a planta en el **ERP (Oracle)** y arma la
-planilla de importación de comprobantes de cosecha de Albor
-(`ImportacionCosecha.xlsx`, hoja **Cosechas a importar**).
+Segunda sección del menú lateral, para todos los usuarios. Se pegan los CTG con
+su número de ticket de Albor al lado, la app busca los ingresos a planta en el
+**ERP (Oracle)** y arma la planilla de importación de comprobantes de cosecha de
+Albor (`ImportacionCosecha.xlsx`, hoja **Cosechas a importar**).
+
+Una línea por CPE, separando con espacio, tabulación o coma, así se puede pegar
+directo desde Excel:
+
+```
+10134580361   31009
+10134826591,  31010
+```
 
 Antes esto salía de una exportación manual de SoftCereal. Esa vía sigue
 funcionando como respaldo: si no hay base configurada, la pantalla pide el
@@ -386,21 +394,45 @@ Si al convertir aparece algo sin equivalencia, la app la pide antes de armar la
 planilla, con una sugerencia cuando hay una segura. Se revisan en
 **Equivalencias** (`/albor/equivalencias`).
 
+### Cultivos (`/albor/cultivos`)
+
+La plantilla de importación trae **solo los cultivos de la campaña activa**, así
+que para una campaña anterior no alcanza. En Albor, menú **Cultivos**, se filtra
+por campaña, se exporta la grilla a Excel y se sube ahí.
+
+Esa exportación es mucho mejor que la plantilla: trae `ID_Cultivo`, `Campo`,
+`Lote`, `Actividad`, `Especie` e `IT_Dimension` (la campaña) **en columnas
+separadas**. Con eso el cultivo se encuentra por cruce exacto de campo + lote +
+actividad + campaña, sin adivinar por el nombre. Dos detalles:
+
+- La columna que coincide con la especie del ERP (`Maiz ESP`) es **Actividad**,
+  no `Especie`, que trae el nombre de Albor (`MAIZ ESPECIAL`).
+- El `ID_Cultivo` va sin ceros (`2527`) y la planilla los pide (`02527`).
+
+Como la exportación trae el código de especie de cada cultivo, **la especie no
+hay que confirmarla**: sale del cultivo elegido, y así no puede quedar una
+especie que contradiga al cultivo.
+
+Si no se puede exportar, la misma pantalla deja escribir la lista a mano, una
+línea por cultivo (`02834 - El Bagual 5-6 MAIZ ESP 25/26`). Se guarda en
+`/storage/informarcpe/albor/cultivos.json`.
+
 ### Número de ticket
 
-El del ERP no sirve en Albor, así que la app numera aparte, correlativo, desde
-`ALBOR_TICKET_DESDE` (1.000.000 por omisión). El número queda guardado por
-ingreso en `tickets.json`: si la misma tanda se convierte de nuevo, sale el
-mismo ticket y no se duplica nada.
+Lo escribe el usuario al lado del CTG. Para los que queden sin número, la app usa
+uno correlativo desde `ALBOR_TICKET_DESDE` (1.000.000 por omisión), guardado por
+ingreso en `tickets.json`: si la misma tanda se convierte de nuevo sale el mismo
+ticket y no se duplica nada.
 
 ### Columnas
 
 | Albor | Sale del ERP |
 |---|---|
 | Fecha, Fecha Partida | `IPL_FECHA_HORA_CARGA` |
-| Número de ticket | correlativo propio |
+| Número de ticket | el que se escribe al lado del CTG |
 | Código campaña | `IPL_COSECHA` (`2526` → `25/26`) |
-| Código especie, Código cultivo | equivalencias |
+| Código cultivo | cruce exacto con los cultivos cargados, o equivalencia |
+| Código especie | la del cultivo elegido; si no se conoce, equivalencia |
 | Tipo de Grano | el único de Albor (`00001`) |
 | Código depósito destino, Código destino | equivalencia por planta |
 | Peso Origen y Destino Bruto / Tara / Neto | `IPL_PESO_BRUTO_RECONOCIDO`, `IPL_TARA` (origen = destino) |

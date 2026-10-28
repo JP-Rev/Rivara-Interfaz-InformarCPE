@@ -35,6 +35,7 @@ REFERENCIAS = ALBOR_DIR / "referencias.json"     # las listas, leídas una vez a
 EQUIVALENCIAS = ALBOR_DIR / "equivalencias.json"
 TANDAS = ALBOR_DIR / "tandas"                    # filas leídas, esperando equivalencias
 TICKETS = ALBOR_DIR / "tickets.json"             # número de ticket asignado a cada ingreso
+CULTIVOS = ALBOR_DIR / "cultivos.json"           # cultivos de Albor cargados a mano
 RETENCION_TANDAS = timedelta(days=2)
 
 HOJA_DATOS = "Cosechas a importar"
@@ -225,6 +226,147 @@ def _escribir_atomico(destino: Path, contenido: bytes) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Cultivos de Albor cargados a mano
+# ---------------------------------------------------------------------------
+# La plantilla de Albor exporta solo los cultivos de la campaña activa, así que
+# para una campaña anterior no alcanza. Acá se carga la lista a mano (se copia
+# del selector de cultivos de Albor) y se suma a la de la plantilla.
+
+def cultivos_cargados() -> list[dict]:
+    """Los cultivos cargados a mano. Cada uno: codigo, nombre y, si vino de la
+    exportación de Albor, campo, lote, actividad y especie por separado."""
+    if not CULTIVOS.is_file():
+        return []
+    datos = json.loads(CULTIVOS.read_text(encoding="utf-8"))
+    # Formato viejo: una lista de textos "codigo - nombre".
+    return [c if isinstance(c, dict) else {"codigo": codigo(c), "nombre": c.split(" - ", 1)[-1]}
+            for c in datos]
+
+
+def _guardar_cultivos(lista: list[dict]) -> list[dict]:
+    unicos: dict[str, dict] = {}
+    for c in lista:
+        if c.get("codigo") and c.get("nombre"):
+            unicos.setdefault(c["codigo"], c)
+    ordenada = list(unicos.values())
+    ALBOR_DIR.mkdir(parents=True, exist_ok=True)
+    _escribir_atomico(CULTIVOS, json.dumps(ordenada, ensure_ascii=False, indent=1).encode())
+    return ordenada
+
+
+def guardar_cultivos(texto: str) -> list[dict]:
+    """Una línea por cultivo: «02834 - El Bagual 5-6 SOJA ESP 25/26», o el
+    código y el nombre separados por tabulación. Reemplaza lo anterior."""
+    lista = []
+    for linea in (texto or "").splitlines():
+        linea = linea.strip()
+        if not linea:
+            continue
+        if "\t" in linea:
+            cod, _, nombre = linea.partition("\t")
+        elif " - " in linea:
+            cod, _, nombre = linea.partition(" - ")
+        else:
+            cod, _, nombre = linea.partition(" ")
+        cod, nombre = cod.strip(), nombre.strip()
+        if cod and nombre:
+            lista.append({"codigo": cod, "nombre": nombre})
+    return _guardar_cultivos(lista)
+
+
+# Columnas de la exportación de cultivos de Albor que se usan.
+COLUMNAS_CULTIVO = ("ID_Cultivo", "Nombre", "Campo", "Lote", "Actividad", "Especie", "IT_Dimension")
+
+
+def es_export_cultivos(contenido: bytes) -> bool:
+    try:
+        encabezado = _encabezado_xlsx(contenido)
+    except Exception:
+        return False
+    return "ID_Cultivo" in encabezado and "Campo" in encabezado
+
+
+def _encabezado_xlsx(contenido: bytes) -> list[str]:
+    from openpyxl import load_workbook
+
+    hoja = load_workbook(io.BytesIO(contenido), read_only=True).worksheets[0]
+    return [str(v or "").strip() for v in next(hoja.iter_rows(max_row=1, values_only=True))]
+
+
+def importar_cultivos(contenido: bytes) -> list[dict]:
+    """Lee la exportación de cultivos de Albor (menú Cultivos -> Excel).
+
+    Trae campo, lote, actividad y especie en columnas separadas, así que el
+    cruce con el ERP es exacto y no hace falta adivinar por el nombre. De paso
+    viene el código de especie, que es el que pide la planilla.
+    """
+    from openpyxl import load_workbook
+
+    hoja = load_workbook(io.BytesIO(contenido), read_only=True).worksheets[0]
+    filas = hoja.iter_rows(values_only=True)
+    titulos = [str(v or "").strip() for v in next(filas)]
+    faltan = [c for c in ("ID_Cultivo", "Nombre", "Campo", "Lote") if c not in titulos]
+    if faltan:
+        raise ErrorArchivo(
+            "No parece la exportación de cultivos de Albor: faltan las columnas "
+            + ", ".join(faltan)
+        )
+    # "Actividad" y "Especie" aparecen dos veces: primero el código, después el
+    # nombre. El nombre de la actividad es el que coincide con el ERP.
+    def pos(nombre: str, cual: int = 0) -> int | None:
+        apariciones = [i for i, t in enumerate(titulos) if t == nombre]
+        return apariciones[cual] if len(apariciones) > cual else None
+
+    i_id, i_nombre = pos("ID_Cultivo"), pos("Nombre")
+    i_campo, i_lote = pos("Campo"), pos("Lote")
+    i_actividad = pos("Actividad", 1)
+    i_esp_cod, i_esp_nom = pos("Especie", 0), pos("Especie", 1)
+    i_campana = pos("IT_Dimension")
+
+    def dato(fila, i):
+        return "" if i is None or i >= len(fila) or fila[i] is None else str(fila[i]).strip()
+
+    lista = []
+    for fila in filas:
+        numero = dato(fila, i_id)
+        nombre = dato(fila, i_nombre)
+        if not numero or not nombre:
+            continue
+        lista.append({
+            # En la plantilla el código va con ceros adelante: 2527 -> "02527".
+            "codigo": numero.zfill(5) if numero.isdigit() else numero,
+            "nombre": nombre,
+            "campo": dato(fila, i_campo),
+            "lote": dato(fila, i_lote),
+            "actividad": dato(fila, i_actividad),
+            "especie": dato(fila, i_esp_cod),
+            "especie_nombre": dato(fila, i_esp_nom),
+            "campana": dato(fila, i_campana),
+        })
+    if not lista:
+        raise ErrorArchivo("La exportación de cultivos no tiene filas.")
+    return _guardar_cultivos(lista)
+
+
+def lista_cultivos(refs: dict | None) -> list[str]:
+    """Las opciones de cultivo: primero las cargadas, después las de la plantilla."""
+    cargados = cultivos_cargados()
+    textos = [f"{c['codigo']} - {c['nombre']}" for c in cargados]
+    vistos = {c["codigo"] for c in cargados}
+    de_plantilla = (refs or {}).get("listas", {}).get("cultivo", [])
+    return textos + [c for c in de_plantilla if codigo(c) not in vistos]
+
+
+def especie_de_cultivo(codigo_cultivo: str) -> str:
+    """El código de especie que Albor le puso al cultivo. Evita confirmar la
+    especie aparte, y garantiza que no quede en contra del cultivo."""
+    for c in cultivos_cargados():
+        if c["codigo"] == codigo_cultivo and c.get("especie"):
+            return c["especie"]
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Equivalencias SoftCereal -> Albor
 # ---------------------------------------------------------------------------
 
@@ -270,7 +412,8 @@ def sugerir(tipo: str, clave: str, refs: dict) -> str:
     if tipo == "especie":
         return _especie_exacta(clave, listas["especie"])
     if tipo == "cultivo":
-        return _sugerir_cultivo(clave, listas["cultivo"])
+        exacto = _cultivo_exacto(clave)
+        return exacto or _sugerir_cultivo(clave, lista_cultivos(refs))
     if tipo in ("deposito", "destino"):
         return _por_nombre(clave.split(" - ", 1)[-1], listas[tipo])
     return ""
@@ -297,6 +440,29 @@ def _por_nombre(descripcion: str, opciones: list[str]) -> str:
 
 def _numeros(texto: str) -> set[str]:
     return {n.lstrip("0") or "0" for n in re.findall(r"\d+", texto)}
+
+
+def _cultivo_exacto(clave_cultivo: str) -> str:
+    """Cruce exacto contra la exportación de cultivos de Albor, que trae campo,
+    lote y actividad en columnas separadas. Es el camino bueno: sin adivinar."""
+    partes = [x.strip() for x in clave_cultivo.split(" | ")]
+    if len(partes) != 4:
+        return ""
+    campo, lote, especie, campana = partes
+    buscado = (_normalizar(campo), _normalizar(lote), _normalizar(especie))
+    candidatos = []
+    for c in cultivos_cargados():
+        if not c.get("campo"):
+            continue
+        if (_normalizar(c["campo"]), _normalizar(c.get("lote", "")),
+                _normalizar(c.get("actividad", ""))) != buscado:
+            continue
+        texto = f"{c['codigo']} - {c['nombre']}"
+        if c.get("campana") == campana:
+            return texto          # misma campaña: no hay nada que dudar
+        candidatos.append(texto)
+    # De otra campaña no se sugiere: el código cambia en cada una.
+    return ""
 
 
 def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
@@ -518,17 +684,51 @@ def _clave_ticket(ingreso: dict) -> str:
     ))
 
 
-def asignar_tickets(ingresos: list[dict]) -> None:
-    """Numera los ingresos de forma correlativa, arriba de TICKET_DESDE.
+def parsear_ctgs(texto: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """Texto pegado -> [(ctg, ticket)], y las líneas que no se entendieron.
 
-    El número queda guardado por ingreso: si la misma tanda se vuelve a
-    convertir, sale el mismo ticket y no se duplica nada en Albor.
+    Una línea por CPE, con el CTG y a continuación el número de ticket de
+    Albor. Separados por espacio, tabulación, coma o punto y coma, así se
+    puede pegar directamente desde Excel:
+
+        10134580361   31009
+        10134826591,  31010
     """
+    pares: list[tuple[str, str]] = []
+    sueltas: list[str] = []
+    for linea in (texto or "").splitlines():
+        if not linea.strip():
+            continue
+        numeros = re.findall(r"\d+", linea)
+        ctg = next((n for n in numeros if len(n) == 11), "")
+        if not ctg:
+            sueltas.append(linea.strip())
+            continue
+        resto = numeros[numeros.index(ctg) + 1:]
+        pares.append((ctg, resto[0] if resto else ""))
+    # Un CTG repetido va una sola vez; gana el primero, que es el que se ve.
+    unicos: dict[str, str] = {}
+    for ctg, ticket in pares:
+        unicos.setdefault(ctg, ticket)
+    return list(unicos.items()), sueltas
+
+
+def asignar_tickets(ingresos: list[dict]) -> None:
+    """Completa el número de ticket de los ingresos que no lo traen.
+
+    Lo normal es que lo escriba el usuario junto con el CTG. Para los que
+    queden sin número se usa uno correlativo arriba de TICKET_DESDE, guardado
+    por ingreso: si la misma tanda se vuelve a convertir sale el mismo número
+    y no se duplica nada en Albor.
+    """
+    pendientes_ = [i for i in ingresos if not (i.get("ticket") or "").strip()]
+    if not pendientes_:
+        return
     mapa = json.loads(TICKETS.read_text(encoding="utf-8")) if TICKETS.is_file() else {}
     usados = [int(v) for v in mapa.values() if str(v).isdigit()]
     siguiente = max(usados + [TICKET_DESDE]) + 1
     nuevos = False
-    for ingreso in ingresos:
+    for ingreso in pendientes_:
         clave_t = _clave_ticket(ingreso)
         if clave_t not in mapa:
             mapa[clave_t] = str(siguiente)
@@ -668,14 +868,19 @@ def _armar(ingreso: dict, refs: dict, equiv: dict) -> Fila:
         ingreso.get("observaciones", ""),
     ) if p)[:250]
 
+    # Si el cultivo salió de la exportación de Albor, su especie viene con él:
+    # así no puede quedar una especie que contradiga al cultivo.
+    cultivo = equivalente("cultivo", True, "cultivo")
+    especie_cultivo = especie_de_cultivo(codigo(cultivo)) if cultivo else ""
+
     v.update({
         "Fecha": fecha,
         "Número de ticket": (ingreso.get("ticket") or "").replace(" ", "-"),
         "Código campaña": campana,
-        "Código especie": equivalente("especie", True, "especie"),
+        "Código especie": especie_cultivo or equivalente("especie", not especie_cultivo, "especie"),
         # Albor tiene un solo tipo de grano ("UNICO"): si es así, va ese.
         "Tipo de Grano": _valor_lista(listas["grano"][0]) if len(listas["grano"]) == 1 else "",
-        "Código cultivo": equivalente("cultivo", True, "cultivo"),
+        "Código cultivo": cultivo,
         "Código depósito destino": equivalente("deposito", True, "depósito destino"),
         "Código destino": equivalente("destino", False, "destino"),
         # Origen = destino, como lo carga hoy Albor: el productor no pesa en el campo.

@@ -27,7 +27,8 @@
 <form class="rv-card ic-tarjeta" method="post" action="/albor" enctype="multipart/form-data" data-formulario>
   {% if oracle_listo %}
     <p class="ic-ayuda">
-      Pegá los números de CTG. La app los busca en el ERP
+      Pegá los CTG con su número de ticket de Albor al lado, uno por línea
+      (se puede copiar y pegar de Excel). La app los busca en el ERP
       ({% for e, n in esquemas.items() %}{{ n }}{% if not loop.last %}, {% endif %}{% endfor %})
       y arma la planilla de importación de cosechas de Albor. Lo que en el ERP
       se llama distinto que en Albor (el campo y lote, la planta) se confirma
@@ -46,9 +47,9 @@
 
   {% if oracle_listo %}
   <label class="rv-campo">
-    <span class="rv-label">Números de CTG</span>
+    <span class="rv-label">CTG y número de ticket</span>
     <textarea class="rv-input ic-ctgs" name="ctgs" rows="6" autofocus
-              placeholder="10134580361&#10;10134826591&#10;…"></textarea>
+              placeholder="10134580361&#9;31009&#10;10134826591&#9;31010&#10;…"></textarea>
   </label>
   <p class="rv-meta" id="contador-ctg"></p>
   {% endif %}
@@ -94,6 +95,7 @@
       {% if oracle_listo %}Buscar en el ERP y generar{% else %}Generar la planilla de Albor{% endif %}
     </button>
     <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
+    <a class="rv-btn rv-btn--fantasma" href="/albor/cultivos">Cultivos</a>
   </div>
 </form>
 
@@ -104,7 +106,7 @@
       <thead><tr><th>Albor</th><th>Sale del ERP</th></tr></thead>
       <tbody>
         <tr><td>Fecha, Fecha Partida</td><td>Fecha y hora de la orden de carga</td></tr>
-        <tr><td>Número de ticket</td><td>correlativo propio, arriba de {{ "{:,}".format(ticket_desde).replace(",", ".") }}</td></tr>
+        <tr><td>Número de ticket</td><td>el que escribís al lado del CTG; si no ponés ninguno, uno correlativo arriba de {{ "{:,}".format(ticket_desde).replace(",", ".") }}</td></tr>
         <tr><td>Código campaña</td><td>Cosecha (<code>2526</code> → <code>25/26</code>)</td></tr>
         <tr><td>Código especie</td><td>Especie (equivalencia: <code>Maiz ESP</code> → <code>MAIZ ESPECIAL</code>)</td></tr>
         <tr><td>Tipo de Grano</td><td>el único que tiene Albor (<code>UNICO</code>)</td></tr>

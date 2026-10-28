@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block titulo %}Cultivos de Albor{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>Cultivos de Albor</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/albor">Volver</a>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+<form class="rv-card ic-tarjeta" method="post" action="/albor/cultivos"
+      enctype="multipart/form-data" data-formulario>
+  <p class="ic-ayuda">
+    La plantilla de importación de Albor trae solo los cultivos de la
+    <strong>campaña activa</strong>. Si los ingresos son de una campaña
+    anterior, sus cultivos no están ahí y hay que cargarlos acá. De esta lista
+    salen las opciones y las sugerencias de la pantalla de equivalencias.
+  </p>
+  <p class="ic-ayuda">
+    En Albor, menú <strong>Cultivos</strong>, filtrá por la campaña que
+    necesitás, exportá la grilla a Excel y soltá el archivo acá. Trae el campo,
+    el lote y la especie en columnas separadas, así que la app encuentra el
+    cultivo exacto sin tener que adivinar por el nombre.
+  </p>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+  {% if ok %}<p class="rv-nota rv-nota--ok">{{ ok }}</p>{% endif %}
+
+  <label class="ic-soltar" data-zona>
+    <input type="file" name="archivo" accept=".xlsx,.xls" hidden>
+    <span class="rv-disco rv-disco--md" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4M8 8l4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+      </svg>
+    </span>
+    <span class="ic-soltar-texto">
+      <strong data-titulo>Soltá acá la exportación de cultivos de Albor</strong>
+      <small data-detalle>o tocá para elegirla — .xlsx</small>
+    </span>
+  </label>
+
+  <details class="ic-plegable" {% if cargados and not cargados[0].campo %}open{% endif %}>
+    <summary>O escribir la lista a mano ({{ cargados | length }} cargados)</summary>
+    <p class="ic-ayuda">
+      Una línea por cultivo, con el código adelante. Lo que guardes acá
+      <strong>reemplaza</strong> la lista entera.
+    </p>
+    <pre class="ic-ejemplo">02834 - El Bagual 5-6 MAIZ ESP 25/26
+02929 - La Dorotea 2 SOJA ESP 25/26</pre>
+    <textarea class="rv-input ic-cultivos" name="cultivos" rows="14"
+              placeholder="02834 - El Bagual 5-6 MAIZ ESP 25/26">{% for c in cargados %}{{ c.codigo }} - {{ c.nombre }}
+{% endfor %}</textarea>
+    <div class="ic-acciones">
+      <button class="rv-btn rv-btn--secundario" type="submit" name="modo" value="texto">Guardar la lista escrita</button>
+    </div>
+  </details>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Importando…">Importar los cultivos</button>
+    <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
+  </div>
+</form>
+
+{% if cargados %}
+<div class="rv-card ic-tarjeta">
+  <h3>{{ cargados | length }} cultivos cargados</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>Código</th><th>Campo</th><th>Lote</th><th>Actividad</th><th>Campaña</th><th>Nombre</th></tr></thead>
+      <tbody>
+        {% for c in cargados[:60] %}
+        <tr>
+          <td class="rv-num">{{ c.codigo }}</td><td>{{ c.campo or '—' }}</td>
+          <td>{{ c.lote or '—' }}</td><td>{{ c.actividad or '—' }}</td>
+          <td>{{ c.campana or '—' }}</td><td>{{ c.nombre }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if cargados | length > 60 %}<p class="rv-meta">Se muestran los primeros 60.</p>{% endif %}
+</div>
+{% endif %}
+
+{% if de_plantilla %}
+<div class="rv-card ic-tarjeta">
+  <details class="ic-plegable">
+    <summary>Ver los {{ de_plantilla | length }} cultivos que trae la plantilla de Albor</summary>
+    <ul class="ic-lista ic-lista--compacta">
+      {% for c in de_plantilla %}<li>{{ c }}</li>{% endfor %}
+    </ul>
+  </details>
+</div>
+{% endif %}
+
+<script>
+  const zona = document.querySelector('[data-zona]')
+  const archivo = zona.querySelector('input[type=file]')
+  const mostrar = (a) => {
+    if (!a) return
+    zona.classList.add('ic-soltar--cargado')
+    zona.querySelector('[data-titulo]').textContent = a.name
+    zona.querySelector('[data-detalle]').textContent = `${Math.max(1, Math.round(a.size / 1024))} kB — tocá para cambiarlo`
+  }
+  archivo.addEventListener('change', () => mostrar(archivo.files[0]))
+  ;['dragenter', 'dragover'].forEach((ev) => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('ic-soltar--encima') }))
+  ;['dragleave', 'dragend'].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove('ic-soltar--encima')))
+  zona.addEventListener('drop', (e) => {
+    e.preventDefault(); zona.classList.remove('ic-soltar--encima')
+    const a = e.dataTransfer.files[0]; if (!a) return
+    const lista = new DataTransfer(); lista.items.add(a); archivo.files = lista.files; mostrar(a)
+  })
+  ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!e.target.closest('[data-zona]')) e.preventDefault() }))
+</script>
+{% endblock %}
