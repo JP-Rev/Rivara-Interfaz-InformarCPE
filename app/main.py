@@ -735,6 +735,16 @@ def _grupos_equivalencias(items: dict[str, list[dict]]) -> list[dict]:
     ]
 
 
+def formulario_filas(formulario) -> list[dict]:
+    """Las filas de la tabla de cultivos: campos con nombre «c3_codigo», etc."""
+    filas: dict[str, dict] = {}
+    for nombre, valor in formulario.items():
+        m = re.fullmatch(r"c(\d+)_([a-z_]+)", nombre)
+        if m:
+            filas.setdefault(m.group(1), {})[m.group(2)] = str(valor)
+    return [filas[k] for k in sorted(filas, key=int)]
+
+
 @app.get("/albor/cultivos", response_class=HTMLResponse)
 def ver_cultivos(request: Request):
     usuario = _con_sesion(request)
@@ -749,6 +759,8 @@ def _pagina_cultivos(request: Request, usuario: dict, **extra):
         request, "albor_cultivos.html",
         _contexto(request, usuario, seccion="albor",
                   cargados=albor.cultivos_cargados(),
+                  campos=albor.campos_albor(),
+                  actividades=albor.actividades_albor(),
                   de_plantilla=(refs or {}).get("listas", {}).get("cultivo", []),
                   **extra),
     )
@@ -760,6 +772,7 @@ async def guardar_cultivos(request: Request, archivo: UploadFile | None = File(N
     usuario = _con_sesion(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
+    formulario = await request.form()
     if archivo is not None and archivo.filename:
         contenido = await archivo.read()
         if not albor.es_export_cultivos(contenido):
@@ -779,6 +792,12 @@ async def guardar_cultivos(request: Request, archivo: UploadFile | None = File(N
         campanas = ", ".join(sorted({c.get("campana") for c in lista if c.get("campana")})) or "sin campaña"
         return _pagina_cultivos(request, usuario,
                                 ok=f"{len(lista)} cultivos importados. Campañas: {campanas}.")
+    filas = formulario_filas(formulario)
+    if filas:
+        lista = albor.guardar_filas_cultivos(filas)
+        log.info("Usuario %s guardó %s cultivos a mano",
+                 usuario.get("email") or usuario.get("name"), len(lista))
+        return _pagina_cultivos(request, usuario, ok=f"{len(lista)} cultivos guardados.")
     lista = albor.guardar_cultivos(cultivos)
     log.info("Usuario %s guardó %s cultivos de Albor",
              usuario.get("email") or usuario.get("name"), len(lista))

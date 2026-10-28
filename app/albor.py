@@ -74,14 +74,10 @@ SIN_EQUIVALENCIA = "-"
 # cultivo se busca con el campo ya traducido.
 TIPOS_EQUIVALENCIA = [
     ("especie", "Especie", "especie", True, ""),
-    ("campo", "Campo", "campo", False,
-     "El mismo campo a veces está cargado en Albor con otro nombre "
-     "(«El Bagual» acá puede ser «El Bagual LTV» allá). Viene propuesto el que "
-     "se llama igual: cambialo si no corresponde, o dejalo vacío para usar el "
-     "mismo nombre del ERP."),
     ("cultivo", "Cultivo", "cultivo", True,
-     "El lote sembrado, con su campaña. Sale del cruce exacto con los cultivos "
-     "que cargaste en la pantalla de Cultivos."),
+     "El lote sembrado, con su campaña. Se propone el de Albor que coincide en "
+     "lote, especie y campaña; fijate el campo, porque en Albor el mismo lote "
+     "puede estar cargado bajo otro campo."),
     ("deposito", "Depósito destino", "deposito", True, "Por planta del ERP."),
     ("destino", "Destino", "destino", False, "Por planta del ERP."),
 ]
@@ -268,6 +264,32 @@ def _guardar_cultivos(lista: list[dict]) -> list[dict]:
     return ordenada
 
 
+def guardar_filas_cultivos(filas: list[dict]) -> list[dict]:
+    """Guarda los cultivos cargados a mano en la pantalla, con campo, lote,
+    actividad y campaña por separado. Reemplaza la lista entera: lo que no
+    viene, se borra."""
+    lista = []
+    for fila in filas:
+        cod = (fila.get("codigo") or "").strip()
+        campo = (fila.get("campo") or "").strip()
+        lote = (fila.get("lote") or "").strip()
+        actividad = (fila.get("actividad") or "").strip()
+        campana = (fila.get("campana") or "").strip()
+        especie_cod = (fila.get("especie") or "").strip()
+        if not cod or not campo:
+            continue
+        nombre = (fila.get("nombre") or "").strip() or " ".join(
+            x for x in (campo, lote, actividad, campana) if x)
+        lista.append({
+            "codigo": cod.zfill(5) if cod.isdigit() else cod,
+            "nombre": nombre, "campo": campo, "lote": lote,
+            "actividad": actividad, "especie": especie_cod,
+            "especie_nombre": (fila.get("especie_nombre") or "").strip(),
+            "campana": campana,
+        })
+    return _guardar_cultivos(lista)
+
+
 def guardar_cultivos(texto: str) -> list[dict]:
     """Una línea por cultivo: «02834 - El Bagual 5-6 SOJA ESP 25/26», o el
     código y el nombre separados por tabulación. Reemplaza lo anterior."""
@@ -434,24 +456,15 @@ def campos_albor() -> list[str]:
     return sorted({c["campo"].strip() for c in cultivos_cargados() if c.get("campo")})
 
 
+def actividades_albor() -> list[str]:
+    return sorted({c["actividad"].strip() for c in cultivos_cargados() if c.get("actividad")})
+
+
 def sugerir(tipo: str, clave: str, refs: dict) -> str:
     """La opción más parecida de Albor, o '' si no hay una razonable."""
     listas = refs["listas"]
     if tipo == "especie":
         return _especie_exacta(clave, listas["especie"])
-    if tipo == "campo":
-        campos = campos_albor()
-        buscado = _normalizar(clave)
-        exacto = next((c for c in campos if _normalizar(c) == buscado), "")
-        if exacto:
-            return exacto
-        # Los que empiezan igual: "El Bagual" -> "El Bagual MF", "El Bagual LTV".
-        empiezan = [c for c in campos if _normalizar(c).startswith(buscado)]
-        if len(empiezan) == 1:
-            return empiezan[0]
-        # Sin una coincidencia clara se propone el nombre del ERP: el usuario
-        # lo confirma o lo cambia, pero nunca queda vacío sin querer.
-        return clave
     if tipo == "cultivo":
         exacto = _cultivo_exacto(clave)
         if exacto or any(c.get("campo") for c in cultivos_cargados()):
@@ -489,29 +502,30 @@ def _numeros(texto: str) -> set[str]:
 
 
 def _cultivo_exacto(clave_cultivo: str) -> str:
-    """Cruce exacto contra la exportación de cultivos de Albor, que trae campo,
-    lote y actividad en columnas separadas. Es el camino bueno: sin adivinar."""
+    """El cultivo de Albor para un campo+lote+especie+campaña del ERP.
+
+    Primero se busca el que coincide también en el campo. Si no hay, se busca
+    por lote, especie y campaña en cualquier campo: en Albor el mismo lote a
+    veces está cargado bajo otro campo, y eso cambia caso por caso. Solo se
+    propone si queda uno; con varios (hay 17 campos con lote «Único» de soja)
+    elige el usuario, que para eso ve el campo en el nombre del cultivo.
+    """
     partes = [x.strip() for x in clave_cultivo.split(" | ")]
     if len(partes) != 4:
         return ""
     campo, lote, especie, campana = partes
-    # El mismo campo puede estar cargado con otro nombre en Albor. Se prueba
-    # con el nombre traducido y, si no da, con el del ERP: así sirve igual
-    # cuando la traducción vale para unos lotes y no para otros.
-    traducido = valor_equivalencia(equivalencias(), "campo", campo)
-    nombres = [_normalizar(x) for x in (traducido, campo) if x]
-    for nombre_campo in dict.fromkeys(nombres):
-        buscado = (nombre_campo, _normalizar(lote), _normalizar(especie))
-        for c in cultivos_cargados():
-            if not c.get("campo"):
-                continue
-            if (_normalizar(c["campo"]), _normalizar(c.get("lote", "")),
-                    _normalizar(c.get("actividad", ""))) != buscado:
-                continue
-            # De otra campaña no se sugiere: el código cambia en cada una.
-            if c.get("campana") == campana:
-                return f"{c['codigo']} - {c['nombre']}"
-    return ""
+    iguales = []
+    for c in cultivos_cargados():
+        if not c.get("campo") or c.get("campana") != campana:
+            continue
+        if (_normalizar(c.get("lote", "")), _normalizar(c.get("actividad", ""))) \
+                != (_normalizar(lote), _normalizar(especie)):
+            continue
+        texto = f"{c['codigo']} - {c['nombre']}"
+        if _normalizar(c["campo"]) == _normalizar(campo):
+            return texto        # mismo campo: no hay nada que dudar
+        iguales.append(texto)
+    return iguales[0] if len(iguales) == 1 else ""
 
 
 def _sugerir_cultivo(clave_cultivo: str, opciones: list[str]) -> str:
@@ -805,8 +819,6 @@ def clave(tipo: str, ingreso: dict) -> str:
     especie = _sin_cosecha(ingreso.get("especie", ""))
     if tipo == "especie":
         return especie
-    if tipo == "campo":
-        return (ingreso.get("campo") or "").strip()
     if tipo == "cultivo":
         campo = (ingreso.get("campo") or "").strip()
         lote = (ingreso.get("lote") or "").strip()
@@ -824,10 +836,7 @@ def pendientes(ingresos: list[dict], refs: dict) -> dict[str, list[dict]]:
     guardadas = equivalencias()
     automaticas: dict[str, dict[str, str]] = {}
     faltan: dict[str, list[dict]] = {}
-    hay_campos = bool(campos_albor())
     for tipo, *_ in TIPOS_EQUIVALENCIA:
-        if tipo == "campo" and not hay_campos:
-            continue  # sin cultivos cargados no hay campos de Albor entre los que elegir
         conteo: dict[str, int] = {}
         for ingreso in ingresos:
             k = clave(tipo, ingreso)
@@ -844,10 +853,6 @@ def pendientes(ingresos: list[dict], refs: dict) -> dict[str, list[dict]]:
                 faltan.setdefault(tipo, []).append({"clave": k, "sugerencia": sugerencia, "filas": n})
     if automaticas:
         guardar_equivalencias(automaticas)
-    # El cultivo se pregunta recién cuando el campo ya está resuelto: con el
-    # campo traducido la sugerencia sale exacta, y así no se confirma a ciegas.
-    if faltan.get("campo") and faltan.get("cultivo"):
-        faltan.pop("cultivo")
     return faltan
 
 

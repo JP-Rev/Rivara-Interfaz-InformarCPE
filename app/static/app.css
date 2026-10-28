@@ -377,3 +377,10 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
   margin: 0; padding: 12px 14px; font-size: 13px; line-height: 1.6;
   background: var(--rv-bg); border-radius: var(--rv-r-md); overflow-x: auto;
 }
+
+.ic-abm td { padding: 4px 6px; }
+.ic-abm .rv-input { width: 100%; min-width: 70px; padding: 6px 8px; font-size: 13px; }
+
+/* Con cientos de cultivos la tabla no puede empujar la página entera. */
+.ic-abm-caja { max-height: 60vh; overflow-y: auto; }
+.ic-abm tr[hidden] { display: none; }

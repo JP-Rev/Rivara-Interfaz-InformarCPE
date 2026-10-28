@@ -41,48 +41,60 @@
     </span>
   </label>
 
-  <details class="ic-plegable" {% if cargados and not cargados[0].campo %}open{% endif %}>
-    <summary>O escribir la lista a mano ({{ cargados | length }} cargados)</summary>
-    <p class="ic-ayuda">
-      Una línea por cultivo, con el código adelante. Lo que guardes acá
-      <strong>reemplaza</strong> la lista entera.
-    </p>
-    <pre class="ic-ejemplo">02834 - El Bagual 5-6 MAIZ ESP 25/26
-02929 - La Dorotea 2 SOJA ESP 25/26</pre>
-    <textarea class="rv-input ic-cultivos" name="cultivos" rows="14"
-              placeholder="02834 - El Bagual 5-6 MAIZ ESP 25/26">{% for c in cargados %}{{ c.codigo }} - {{ c.nombre }}
-{% endfor %}</textarea>
-    <div class="ic-acciones">
-      <button class="rv-btn rv-btn--secundario" type="submit" name="modo" value="texto">Guardar la lista escrita</button>
-    </div>
-  </details>
-
   <div class="ic-acciones">
     <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Importando…">Importar los cultivos</button>
     <a class="rv-btn rv-btn--fantasma" href="/albor/equivalencias">Equivalencias</a>
   </div>
 </form>
 
-{% if cargados %}
-<div class="rv-card ic-tarjeta">
-  <h3>{{ cargados | length }} cultivos cargados</h3>
-  <div class="ic-tabla-scroll">
-    <table class="rv-tabla">
-      <thead><tr><th>Código</th><th>Campo</th><th>Lote</th><th>Actividad</th><th>Campaña</th><th>Nombre</th></tr></thead>
-      <tbody>
-        {% for c in cargados[:60] %}
+<form class="rv-card ic-tarjeta" method="post" action="/albor/cultivos" enctype="multipart/form-data">
+  <h3>Cargar o corregir a mano</h3>
+  <p class="ic-ayuda">
+    Para agregar un cultivo nuevo sin volver a exportar de Albor. Lo que
+    guardes acá <strong>reemplaza la lista entera</strong>: para borrar uno,
+    vaciale el código. El código es el <code>ID_Cultivo</code> de Albor, y los
+    ceros adelante los pone la app.
+  </p>
+
+  <label class="rv-campo">
+    <span class="rv-label">Buscar</span>
+    <input class="rv-input" id="buscar" type="search" autocomplete="off"
+           placeholder="campo, lote, actividad o campaña — ej: bagual 15">
+  </label>
+  <p class="rv-meta" id="conteo"></p>
+
+  <div class="ic-tabla-scroll ic-abm-caja">
+    <table class="rv-tabla ic-abm">
+      <thead>
+        <tr><th>Código</th><th>Campo</th><th>Lote</th><th>Actividad</th><th>Campaña</th><th>Cód. especie</th></tr>
+      </thead>
+      <tbody id="filas">
+        {% for c in cargados %}
         <tr>
-          <td class="rv-num">{{ c.codigo }}</td><td>{{ c.campo or '—' }}</td>
-          <td>{{ c.lote or '—' }}</td><td>{{ c.actividad or '—' }}</td>
-          <td>{{ c.campana or '—' }}</td><td>{{ c.nombre }}</td>
+          <td><input class="rv-input" name="c{{ loop.index }}_codigo" value="{{ c.codigo }}" size="6"></td>
+          <td><input class="rv-input" name="c{{ loop.index }}_campo" value="{{ c.campo or '' }}" list="campos-albor"></td>
+          <td><input class="rv-input" name="c{{ loop.index }}_lote" value="{{ c.lote or '' }}" size="8"></td>
+          <td><input class="rv-input" name="c{{ loop.index }}_actividad" value="{{ c.actividad or '' }}" list="actividades" size="10"></td>
+          <td><input class="rv-input" name="c{{ loop.index }}_campana" value="{{ c.campana or '' }}" size="6"></td>
+          <td><input class="rv-input" name="c{{ loop.index }}_especie" value="{{ c.especie or '' }}" size="5"></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% if cargados | length > 60 %}<p class="rv-meta">Se muestran los primeros 60.</p>{% endif %}
-</div>
-{% endif %}
+
+  <datalist id="campos-albor">
+    {% for c in campos %}<option value="{{ c }}"></option>{% endfor %}
+  </datalist>
+  <datalist id="actividades">
+    {% for a in actividades %}<option value="{{ a }}"></option>{% endfor %}
+  </datalist>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="button" id="agregar">Agregar una fila</button>
+    <button class="rv-btn rv-btn--primario" type="submit">Guardar la lista</button>
+  </div>
+</form>
 
 {% if de_plantilla %}
 <div class="rv-card ic-tarjeta">
@@ -113,5 +125,47 @@
     const lista = new DataTransfer(); lista.items.add(a); archivo.files = lista.files; mostrar(a)
   })
   ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!e.target.closest('[data-zona]')) e.preventDefault() }))
+
+  // Una fila vacía más, para cargar un cultivo nuevo.
+  const cuerpo = document.getElementById('filas')
+  document.getElementById('agregar').addEventListener('click', () => {
+    const n = cuerpo.rows.length + 1
+    const campos = [
+      ['codigo', 6, ''], ['campo', 0, 'campos-albor'], ['lote', 8, ''],
+      ['actividad', 10, 'actividades'], ['campana', 6, ''], ['especie', 5, ''],
+    ]
+    const fila = cuerpo.insertRow()
+    for (const [nombre, ancho, lista] of campos) {
+      const celda = fila.insertCell()
+      const campo = document.createElement('input')
+      campo.className = 'rv-input'
+      campo.name = `c${n}_${nombre}`
+      if (ancho) campo.size = ancho
+      if (lista) campo.setAttribute('list', lista)
+      celda.appendChild(campo)
+    }
+    fila.querySelector('input').focus()
+    buscador.value = ''
+    filtrar()
+  })
+
+  // Filtra ocultando filas: siguen en el formulario, así guardar no borra nada.
+  const buscador = document.getElementById('buscar')
+  const conteo = document.getElementById('conteo')
+  const filtrar = () => {
+    const partes = buscador.value.toLowerCase().split(/\s+/).filter(Boolean)
+    let visibles = 0
+    for (const fila of cuerpo.rows) {
+      const texto = [...fila.querySelectorAll('input')].map((i) => i.value.toLowerCase()).join(' ')
+      const pasa = partes.every((p) => texto.includes(p))
+      fila.hidden = !pasa
+      if (pasa) visibles++
+    }
+    conteo.textContent = partes.length
+      ? `${visibles} de ${cuerpo.rows.length} cultivos`
+      : `${cuerpo.rows.length} cultivos`
+  }
+  buscador.addEventListener('input', filtrar)
+  filtrar()
 </script>
 {% endblock %}

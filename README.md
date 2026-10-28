@@ -382,24 +382,20 @@ una sola vez y queda en `/storage/informarcpe/albor/equivalencias.json`:
 | Tipo | Clave del ERP | Ejemplo en Albor |
 |---|---|---|
 | Especie | `Maiz ESP` | `1113 - MAIZ ESPECIAL` (se resuelve sola si el nombre coincide) |
-| Campo (opcional) | `El Bagual` | `El Bagual LTV` |
 | Cultivo | `El Bagual \| 15 \| Soja ESP \| 25/26` | `02836 - El Bagual LTV 15 SOJA ESP 25/26` |
 | Depósito destino | `Planta 16 - Planta de Silos Acceso` | `PSAA - Planta Silos Acceso Alberti` |
 | Destino (opcional) | `Planta 16 - Planta de Silos Acceso` | `9 - Planta Silo Acceso Acceso Alberti` |
 
-**El campo siempre se pregunta**, aunque se llame igual en los dos lados: el
-mismo lote a veces está cargado en Albor bajo otro campo (`El Bagual` acá,
-`El Bagual LTV` allá), y eso solo lo sabe quien lo cargó. Viene propuesto el que
-coincide, para confirmarlo o cambiarlo.
+**El campo no se traduce con una tabla.** El mismo campo del ERP puede ir a
+campos distintos de Albor según el lote, así que no hay una equivalencia
+estable: se elige el cultivo, que ya es por campo y lote.
 
-Por eso las equivalencias se piden **en dos rondas**: primero el campo (con el
-depósito y la especie), y recién después el cultivo, ya buscado con el campo
-traducido. Al buscarlo se prueba primero con el nombre traducido y después con
-el del ERP, así la traducción sirve aunque valga solo para algunos lotes.
-
-Cuando hay cultivos cargados con campo y lote propios, el cultivo **o cruza
-exacto o no se sugiere**: adivinar por el nombre llevaría a confirmar el lote
-equivocado del campo equivocado.
+Para proponerlo, primero se busca el cultivo de Albor que coincide en campo,
+lote, actividad y campaña. Si no hay (porque en Albor ese lote quedó bajo otro
+campo), se busca por lote, actividad y campaña **en cualquier campo**, y se
+propone solo si queda uno: hay 17 campos con lote «Único» de soja, y con varios
+candidatos elige el usuario. Como el nombre del cultivo incluye el campo, en la
+pantalla se ve si cambió.
 
 En las equivalencias opcionales, dejar el valor vacío significa «acá no va
 nada» y se guarda así; si no, se volvería a preguntar en cada tanda.
@@ -431,9 +427,15 @@ Como la exportación trae el código de especie de cada cultivo, **la especie no
 hay que confirmarla**: sale del cultivo elegido, y así no puede quedar una
 especie que contradiga al cultivo.
 
-Si no se puede exportar, la misma pantalla deja escribir la lista a mano, una
-línea por cultivo (`02834 - El Bagual 5-6 MAIZ ESP 25/26`). Se guarda en
-`/storage/informarcpe/albor/cultivos.json`.
+Debajo, la misma pantalla tiene la lista **editable fila por fila** (código,
+campo, lote, actividad, campaña y código de especie), con un buscador. Sirve
+para agregar un cultivo nuevo o corregir uno sin volver a exportar de Albor.
+Guardar reemplaza la lista entera, así que para borrar un cultivo se le vacía el
+código; el buscador solo esconde filas, no las saca del formulario. Todo queda
+en `/storage/informarcpe/albor/cultivos.json`.
+
+**Los campos y lotes del ERP no hace falta cargarlos**: salen de la consulta a
+Oracle en cada tanda, así que siempre están al día.
 
 ### Número de ticket
 
