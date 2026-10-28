@@ -708,7 +708,7 @@ def _seguir_tanda(request: Request, usuario: dict, tanda: str):
             request, "albor_equivalencias.html",
             _contexto(request, usuario, seccion="albor", tanda=tanda, origen=datos["origen"],
                       grupos=_grupos_equivalencias({t: faltan[t] for t in faltan}),
-                      listas=dict(refs["listas"], cultivo=albor.lista_cultivos(refs))),
+                      listas=dict(refs["listas"], cultivo=albor.lista_cultivos(refs), campo=albor.campos_albor())),
         )
     resultado = albor.convertir(datos["ingresos"], refs, datos.get("ya_en_albor"))
     faltantes = datos.get("faltantes") or []
@@ -729,8 +729,9 @@ def _seguir_tanda(request: Request, usuario: dict, tanda: str):
 def _grupos_equivalencias(items: dict[str, list[dict]]) -> list[dict]:
     """Para el formulario: un grupo por tipo, en el orden de TIPOS_EQUIVALENCIA."""
     return [
-        {"tipo": tipo, "titulo": titulo, "lista": lista, "obligatoria": obligatoria, "entradas": items[tipo]}
-        for tipo, titulo, lista, obligatoria in albor.TIPOS_EQUIVALENCIA if items.get(tipo)
+        {"tipo": tipo, "titulo": titulo, "lista": lista, "obligatoria": obligatoria,
+         "ayuda": ayuda, "entradas": items[tipo]}
+        for tipo, titulo, lista, obligatoria, ayuda in albor.TIPOS_EQUIVALENCIA if items.get(tipo)
     ]
 
 
@@ -798,7 +799,7 @@ def ver_equivalencias(request: Request):
     return plantillas.TemplateResponse(
         request, "albor_equivalencias.html",
         _contexto(request, usuario, seccion="albor", tanda="", grupos=_grupos_equivalencias(items),
-                  listas=dict(refs["listas"], cultivo=albor.lista_cultivos(refs))),
+                  listas=dict(refs["listas"], cultivo=albor.lista_cultivos(refs), campo=albor.campos_albor())),
     )
 
 
@@ -819,8 +820,14 @@ async def guardar_equivalencias(request: Request):
             nuevas.setdefault(tipo, {})[clave_eq] = str(formulario.get(f"v{m.group(1)}", ""))
     tanda = str(formulario.get("tanda", ""))
     if tanda:
-        # En una tanda, lo que se deja vacío queda pendiente: no se borra nada.
-        nuevas = {t: {k: v for k, v in vals.items() if v.strip()} for t, vals in nuevas.items()}
+        # En una tanda no se borra nada. Lo que se deja vacío queda pendiente,
+        # salvo en las equivalencias opcionales: ahí vacío significa "acá no va
+        # nada" y se guarda así, o se preguntaría en cada tanda.
+        nuevas = {
+            t: {k: (v.strip() or albor.SIN_EQUIVALENCIA)
+                for k, v in vals.items() if v.strip() or t in albor.OPCIONALES}
+            for t, vals in nuevas.items()
+        }
     albor.guardar_equivalencias(nuevas)
     if tanda:
         return _seguir_tanda(request, usuario, tanda)

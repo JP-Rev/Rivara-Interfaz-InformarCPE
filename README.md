@@ -382,9 +382,27 @@ una sola vez y queda en `/storage/informarcpe/albor/equivalencias.json`:
 | Tipo | Clave del ERP | Ejemplo en Albor |
 |---|---|---|
 | Especie | `Maiz ESP` | `1113 - MAIZ ESPECIAL` (se resuelve sola si el nombre coincide) |
-| Cultivo | `El Bagual \| 5-6 \| Maiz ESP \| 25/26` | `02834 - El Bagual 5-6 MAIZ ESP 25/26` |
+| Campo (opcional) | `El Bagual` | `El Bagual LTV` |
+| Cultivo | `El Bagual \| 15 \| Soja ESP \| 25/26` | `02836 - El Bagual LTV 15 SOJA ESP 25/26` |
 | Depósito destino | `Planta 16 - Planta de Silos Acceso` | `PSAA - Planta Silos Acceso Alberti` |
 | Destino (opcional) | `Planta 16 - Planta de Silos Acceso` | `9 - Planta Silo Acceso Acceso Alberti` |
+
+**El campo siempre se pregunta**, aunque se llame igual en los dos lados: el
+mismo lote a veces está cargado en Albor bajo otro campo (`El Bagual` acá,
+`El Bagual LTV` allá), y eso solo lo sabe quien lo cargó. Viene propuesto el que
+coincide, para confirmarlo o cambiarlo.
+
+Por eso las equivalencias se piden **en dos rondas**: primero el campo (con el
+depósito y la especie), y recién después el cultivo, ya buscado con el campo
+traducido. Al buscarlo se prueba primero con el nombre traducido y después con
+el del ERP, así la traducción sirve aunque valga solo para algunos lotes.
+
+Cuando hay cultivos cargados con campo y lote propios, el cultivo **o cruza
+exacto o no se sugiere**: adivinar por el nombre llevaría a confirmar el lote
+equivocado del campo equivocado.
+
+En las equivalencias opcionales, dejar el valor vacío significa «acá no va
+nada» y se guarda así; si no, se volvería a preguntar en cada tanda.
 
 Los códigos de especie **no coinciden** entre los dos sistemas: `05` es
 `Maiz ESP` en el ERP y `CEBADA` en Albor. Por eso nunca se pasa el código del

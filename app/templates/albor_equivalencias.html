@@ -36,6 +36,7 @@
   {% set n = namespace(i=0) %}
   {% for g in grupos %}
     <h3>{{ g.titulo }}{% if not g.obligatoria %} <small class="rv-meta">(opcional)</small>{% endif %}</h3>
+    {% if g.ayuda %}<p class="ic-ayuda">{{ g.ayuda }}</p>{% endif %}
     <datalist id="lista-{{ g.tipo }}">
       {% for o in listas[g.lista] %}<option value="{{ o }}"></option>{% endfor %}
     </datalist>
