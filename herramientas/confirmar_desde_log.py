@@ -93,9 +93,11 @@ def cuentas_desde_oracle(ctgs: list[str]) -> dict[str, dict]:
     salida: dict[str, dict] = {}
     for desde in range(0, len(ctgs), 200):      # de a 200, por el IN de Oracle
         for fila in oracle.buscar_bolsatech(ctgs[desde:desde + 200]):
-            muestra = (fila.get("ID_MUESTRA") or "").strip()
-            if muestra:
-                salida[str(fila["IPL_CTG"]).strip()] = {
+            # buscar_bolsatech devuelve las columnas en minúscula (oracle.py).
+            muestra = str(fila.get("id_muestra") or "").strip()
+            ctg = str(fila.get("ctg") or "").strip()
+            if muestra and ctg:
+                salida[ctg] = {
                     "id_muestra": muestra,
                     "cuenta": bolsatech._cuenta_de(muestra),
                 }
