@@ -1084,6 +1084,7 @@ async def correr_bolsatech(request: Request, confirmo: str = Form(""),
     return plantillas.TemplateResponse(
         request, "bolsatech_corrida.html",
         _contexto(request, usuario, seccion="bolsatech", r=resumen, solo_ver=solo_ver,
+                  prefijo_mliaudat=config.bolsatech_prefijo_mliaudat,
                   INFORMADA=bolsatech.INFORMADA, YA_ESTABA=bolsatech.YA_ESTABA,
                   SIN_CONFIRMAR=bolsatech.SIN_CONFIRMAR, ERROR=bolsatech.ERROR),
     )

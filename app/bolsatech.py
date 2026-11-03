@@ -84,6 +84,7 @@ class Cpe:
     sociedad: str = ""
     planta: str = ""
     especie_erp: str = ""
+    muestra_derivada: bool = False   # el ERP no la tenía: prefijo + CTG
     errores: list[str] = field(default_factory=list)
 
     @property
@@ -138,6 +139,7 @@ def armar(fila: dict, prefijo_muestra: str = "") -> Cpe:
     carta = f"{sucursal}{numero.zfill(8)}" if numero else ""
 
     id_muestra = _texto(fila.get("id_muestra"))
+    muestra_derivada = not id_muestra
     if not id_muestra and ctg:
         id_muestra = f"{prefijo_muestra or planta.get('prefijo', '')}{ctg}"
 
@@ -152,6 +154,7 @@ def armar(fila: dict, prefijo_muestra: str = "") -> Cpe:
         planta_oncca=oncca,
         localidad_destino=planta.get("localidad", ""),
         id_muestra=id_muestra,
+        muestra_derivada=muestra_derivada,
         kilos=_kilos(fila.get("kilos_netos_secos")),
         fecha=_texto(fila.get("fecha_hora")),
         cosecha=_texto(fila.get("cosecha")),
@@ -692,7 +695,19 @@ def corrida(enviar_de_verdad: bool = True,
         "errores_datos": [{"ctg": c.ctg, "motivo": "; ".join(c.errores)} for c in con_error],
     }
     if not enviar_de_verdad:
-        resumen["pendientes"] = [c.ctg for c in pendientes_[:limite]]
+        # Con qué datos irían: el id de muestra y la cuenta son lo que hay que
+        # mirar antes de informar, porque deciden a qué participante va.
+        resumen["pendientes"] = [{
+            "ctg": c.ctg,
+            "numero_carta_porte": c.numero_carta_porte,
+            "id_muestra": c.id_muestra,
+            "muestra_derivada": c.muestra_derivada,
+            "cuenta": c.cuenta,
+            "sociedad": c.sociedad,
+            "planta": c.planta,
+            "kilos": c.kilos,
+            "fecha": c.fecha,
+        } for c in pendientes_[:limite]]
         return resumen
 
     hubo_problemas = bool(con_error)

@@ -102,12 +102,39 @@
 {% if solo_ver and r.pendientes %}
 <div class="rv-card ic-tarjeta">
   <h3>CTG que se van a informar</h3>
-  <p class="ic-ayuda">{{ r.pendientes | length }} CTG, en este orden.</p>
+  <p class="ic-ayuda">
+    {{ r.pendientes | length }} CTG, en este orden, con los datos que se
+    mandarían. El <strong>id de muestra</strong> decide la cuenta: si empieza
+    con {{ prefijo_mliaudat }} va por MLiaudat, si no por Rivara.
+  </p>
+  {% set derivadas = r.pendientes | selectattr('muestra_derivada') | list %}
+  {% if derivadas %}
+    <p class="rv-nota rv-nota--info">
+      {{ derivadas | length }} de {{ r.pendientes | length }} no tienen id de
+      muestra cargado en el ERP. Para esas se arma con el prefijo de su planta
+      más el CTG, y van marcadas con <em>(armado)</em>.
+    </p>
+  {% endif %}
   <div class="ic-tabla-scroll">
     <table class="rv-tabla">
-      <thead><tr><th>CTG</th></tr></thead>
+      <thead>
+        <tr><th>CTG</th><th>Carta de porte</th><th>Id de muestra</th><th>Cuenta</th>
+            <th>Sociedad</th><th>Planta</th><th class="rv-num">Kilos</th><th>Fecha</th></tr>
+      </thead>
       <tbody>
-        {% for ctg in r.pendientes %}<tr><td class="rv-num">{{ ctg }}</td></tr>{% endfor %}
+        {% for p in r.pendientes %}
+        <tr>
+          <td class="rv-num">{{ p.ctg }}</td>
+          <td class="rv-num">{{ p.numero_carta_porte }}</td>
+          <td class="rv-num">{{ p.id_muestra or '—' }}{% if p.muestra_derivada %}
+            <small class="rv-meta">(armado)</small>{% endif %}</td>
+          <td>{{ p.cuenta }}</td>
+          <td>{{ p.sociedad or '—' }}</td>
+          <td>{{ p.planta or '—' }}</td>
+          <td class="rv-num">{{ p.kilos or '—' }}</td>
+          <td>{% set f = (p.fecha or '')[:16] %}{% if f %}{{ f[8:10] }}/{{ f[5:7] }}/{{ f[0:4] }} {{ f[11:16] }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
       </tbody>
     </table>
   </div>
