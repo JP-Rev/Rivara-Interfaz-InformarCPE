@@ -604,6 +604,35 @@ cómodo a propósito: preferir reintentar antes que perder una CPE.
 El botón **Correr ahora** hace lo mismo a mano. Sin tildar la casilla solo
 muestra qué haría, sin enviar nada.
 
+### Consultar el estado de una CPE en BolsaTech
+
+```bash
+docker compose exec informarcpe python -m herramientas.consultar_cpe 10130966598
+docker compose exec informarcpe python -m herramientas.consultar_cpe --xml 10130966598
+```
+
+Solo lee: ninguna de esas llamadas registra, modifica ni anula nada.
+
+El servicio identifica la carta de porte con `numeroCartaPorte|ctg`, así que una
+consulta falla **tanto si la CPE no está como si está con otro número de carta
+de porte**. Por eso la herramienta prueba tres formas —`numero|ctg`, solo el
+número, solo el CTG— y muestra qué contesta cada una. Si las últimas encuentran
+algo que la primera no, la CPE está en BolsaTech con un número distinto del que
+arma el ERP.
+
+De cada CPE encontrada muestra el `estado` (`INGRESADA`, `ANULADA`) y la fecha
+de registración.
+
+**`ya_informada()` no mira el estado**: da por informada cualquier CPE que el
+servicio devuelva. Una `ANULADA` cuenta como informada y no se vuelve a
+informar. Está así a propósito hasta confirmar con BolsaTech qué corresponde
+hacer con una anulada; cambiarlo haría que la app empiece a dar de alta CPE que
+hoy saltea.
+
+Los otros dos métodos que documenta Bolsatech y la app **no** usa: `getCTG`
+(del número de carta de porte al CTG) y `requiereMuestra` (si esa CPE va a
+análisis).
+
 ### Confirmar los trackId de los logs viejos
 
 Los scripts corrieron meses sin `BOLSATECH_TRACK_URL`, así que cada alta quedó
