@@ -78,6 +78,49 @@ SELECT i.IPL_CTG                        AS ctg,
 """
 
 
+# Lo que necesita el alta en BolsaTech. Tiene más vueltas que la de Albor: el
+# establecimiento y la localidad salen del campo, y el id de muestra de la
+# tabla de biotecnologías, que se cruza por CTG.
+CONSULTA_BOLSATECH = """
+SELECT i.IPL_PUNTO_INGRESO              AS punto_ingreso,
+       i.IPL_NUMERO_INGRESO             AS numero_ingreso,
+       i.IPL_SUCURSAL_INTERNA_CPE       AS sucursal_cpe,
+       i.IPL_NUMERO_INTERNO_CPE         AS numero_cpe,
+       i.IPL_CTG                        AS ctg,
+       i.IPL_ESPECIE                    AS especie_codigo,
+       e.ESP_DESCRIPCION                AS especie,
+       e.ESP_CODIGO_SAGPYA              AS especie_sagpya,
+       i.IPL_CUIT_PRODUCTOR             AS cuit_productor,
+       i.IPL_NOMBRE_PRODUCTOR           AS productor,
+       i.IPL_CAMPO                      AS campo_codigo,
+       c.CAM_DESCRIPCION                AS establecimiento,
+       cp.CPO_LOCALIDAD_ONCCA           AS localidad_procedencia,
+       i.IPL_PLANTA                     AS planta_codigo,
+       p.PLA_DESCRIPCION                AS planta,
+       p.PLA_NUMERO_ONCCA               AS planta_oncca,
+       i.IPL_PESO_NETO                  AS kilos_netos_secos,
+       i.IPL_FECHA_HORA                 AS fecha_hora,
+       i.IPL_COSECHA                    AS cosecha,
+       (SELECT MAX(TRIM(TO_CHAR(b.INB_IDENTIFICADOR_MUESTRA)))
+          FROM {esquema}.INFORMACION_BIOTECNOLOGIAS b
+         WHERE b.INB_NUMERO_CP = i.IPL_CTG
+           AND b.INB_IDENTIFICADOR_MUESTRA IS NOT NULL) AS id_muestra
+  FROM {esquema}.INGRESOS_PLANTAS i
+  LEFT JOIN {esquema}.ESPECIES e ON e.ESP_ESPECIE = i.IPL_ESPECIE
+  LEFT JOIN {esquema}.CAMPOS   c ON c.CAM_CAMPO   = i.IPL_CAMPO
+  LEFT JOIN {esquema}.CODIGOS_POSTALES cp
+         ON cp.CPO_CODIGO_POSTAL = c.CAM_CODIGO_POSTAL
+        AND NVL(TRIM(cp.CPO_SUFIJO_POSTAL), ' ') = NVL(TRIM(c.CAM_SUFIJO_POSTAL), ' ')
+  LEFT JOIN {esquema}.PLANTAS  p ON p.PLA_PLANTA  = i.IPL_PLANTA
+ WHERE i.IPL_NUMERO_INTERNO_CPE IS NOT NULL
+   AND i.IPL_CTG IS NOT NULL
+   AND i.IPL_PESO_NETO IS NOT NULL
+   AND i.IPL_PESO_NETO > 0
+   AND {filtro}
+ ORDER BY i.IPL_FECHA_HORA, i.IPL_PUNTO_INGRESO, i.IPL_NUMERO_INGRESO
+"""
+
+
 class ErrorOracle(RuntimeError):
     pass
 
@@ -171,6 +214,56 @@ def buscar(ctgs: list[str], esquemas: list[str] | None = None) -> list[dict]:
                     filas.append(datos)
     log.info("Oracle: %s CTG pedidos, %s encontrados", len(numeros), len(filas))
     return filas
+
+
+def buscar_bolsatech(
+    ctgs: list[str] | None = None,
+    desde=None,
+    hasta=None,
+    especies: list[str] | None = None,
+    esquemas: list[str] | None = None,
+) -> list[dict]:
+    """Los ingresos a informar a BolsaTech, por CTG o por rango de fechas.
+
+    Por CTG no se filtra la especie: si el usuario pegó ese número es porque lo
+    quiere informar. Por fecha sí, que es como corre el proceso automático.
+    """
+    filas: list[dict] = []
+    numeros = [c for c in dict.fromkeys(ctgs or []) if CTG.fullmatch(c)]
+    if ctgs is not None and not numeros:
+        return []
+    with conectar() as cn:
+        cur = cn.cursor()
+        for esquema in _esquemas_validos(esquemas):
+            for filtro, parametros in _filtros(numeros, desde, hasta, especies):
+                cur.execute(CONSULTA_BOLSATECH.format(esquema=esquema, filtro=filtro), parametros)
+                columnas = [d[0].lower() for d in cur.description]
+                for fila in cur:
+                    datos = dict(zip(columnas, fila))
+                    datos["esquema"] = esquema
+                    datos["sociedad"] = config.oracle_esquemas[esquema]
+                    filas.append(datos)
+    log.info("Oracle (BolsaTech): %s ingresos", len(filas))
+    return filas
+
+
+def _filtros(numeros: list[str], desde, hasta, especies: list[str] | None):
+    """(trozo de WHERE, parámetros). Todo va por bind variables."""
+    if numeros:
+        for tanda in _por_tandas(numeros, 500):
+            marcas = ", ".join(f":c{i}" for i in range(len(tanda)))
+            yield (f"i.IPL_CTG IN ({marcas})",
+                   {f"c{i}": v for i, v in enumerate(tanda)})
+        return
+    if not (desde and hasta):
+        raise ErrorOracle("Hace falta una lista de CTG o un rango de fechas.")
+    condiciones = ["i.IPL_FECHA_HORA > :desde", "i.IPL_FECHA_HORA <= :hasta"]
+    parametros: dict = {"desde": desde, "hasta": hasta}
+    if especies:
+        marcas = ", ".join(f":e{i}" for i in range(len(especies)))
+        condiciones.append(f"i.IPL_ESPECIE IN ({marcas})")
+        parametros.update({f"e{i}": v for i, v in enumerate(especies)})
+    yield " AND ".join(condiciones), parametros
 
 
 def _por_tandas(valores: list[str], tamano: int):

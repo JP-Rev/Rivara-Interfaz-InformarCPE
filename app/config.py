@@ -138,6 +138,40 @@ class Config:
     # 11.2 y el modo "thin" de oracledb necesita 12.1 o posterior.
     oracle_lib_dir: str = os.getenv("ORACLE_LIB_DIR", "").strip()
 
+    # BolsaTech (SIBIO): se informan las CPE de soja para el muestreo de
+    # biotecnologías. A diferencia de Visec y Albor, acá se escribe en un
+    # sistema externo, así que el envío real es siempre una acción explícita.
+    bolsatech_url: str = os.getenv("BOLSATECH_URL", "").strip()
+    bolsatech_url_track: str = os.getenv("BOLSATECH_TRACK_URL", "").strip()
+    bolsatech_timeout: int = int(os.getenv("BOLSATECH_TIMEOUT", "60"))
+    # Dos cuentas: la de Rivara y la de MLiaudat. Cuál se usa lo decide el
+    # prefijo del id de muestra (779... va por MLiaudat).
+    bolsatech_cuentas: dict[str, str] = field(default_factory=lambda: {
+        "rivara": os.getenv("BOLSATECH_USUARIO_RIVARA", "ws_rivara").strip(),
+        "mliaudat": os.getenv("BOLSATECH_USUARIO_MLIAUDAT", "ws_mliaudat").strip(),
+    })
+    bolsatech_claves: dict[str, str] = field(default_factory=lambda: {
+        "rivara": os.getenv("BOLSATECH_PASSWORD_RIVARA", ""),
+        "mliaudat": os.getenv("BOLSATECH_PASSWORD_MLIAUDAT", ""),
+    })
+    bolsatech_prefijo_mliaudat: str = os.getenv("BOLSATECH_PREFIJO_MLIAUDAT", "779").strip()
+    # Especie que se informa cuando el ERP no trae el código SAGPyA. 23 es soja.
+    bolsatech_especie_defecto: str = os.getenv("BOLSATECH_ESPECIE_DEFECTO", "23").strip()
+    # Las especies del ERP que se informan a BolsaTech (todas variantes de soja).
+    bolsatech_especies: list[str] = field(default_factory=lambda: [
+        e.strip() for e in os.getenv("BOLSATECH_ESPECIES", "08,14,20,24,38").split(",") if e.strip()
+    ])
+    # Por planta (número ONCCA): localidad de destino, puerto y prefijo del id
+    # de muestra. Formato ONCCA:localidad:puerto:prefijo, separados por coma.
+    # El primero que no tiene número ONCCA es el que se usa por omisión.
+    bolsatech_plantas: str = os.getenv(
+        "BOLSATECH_PLANTAS", "525045:1170:7790:7790,*:252:5150:5140").strip()
+    # Quién recibe la mercadería, por planta: ONCCA:CUIT:razón social.
+    # '*' es la sociedad por omisión.
+    bolsatech_destinatarios: str = os.getenv(
+        "BOLSATECH_DESTINATARIOS",
+        "525045:30716318989:Pradera Natural S.A.,*:30601191640:Rivara S.A.").strip()
+
     # ARCA mueve los endpoints cada tanto (y migro de afip.gob.ar a arca.gob.ar),
     # asi que las URL se pueden pisar desde el .env sin tocar el codigo.
     url_wsaa_override: str = os.getenv("ARCA_URL_WSAA", "").strip()
@@ -154,6 +188,41 @@ class Config:
         # Se le habla al endpoint, no al WSDL: si quedo "?wsdl" de una
         # configuracion anterior, se saca.
         return url.split("?", 1)[0]
+
+    @property
+    def plantas_bolsatech(self) -> dict[str, dict[str, str]]:
+        """ONCCA -> {localidad, puerto, prefijo}. '*' es el valor por omisión."""
+        salida: dict[str, dict[str, str]] = {}
+        for entrada in self.bolsatech_plantas.split(","):
+            partes = [p.strip() for p in entrada.split(":")]
+            if len(partes) == 4 and all(partes):
+                salida[partes[0]] = {"localidad": partes[1], "puerto": partes[2],
+                                     "prefijo": partes[3]}
+        return salida
+
+    def datos_planta(self, oncca: str) -> dict[str, str]:
+        plantas = self.plantas_bolsatech
+        return plantas.get(str(oncca or "").strip(), plantas.get("*", {}))
+
+    @property
+    def bolsatech_listo(self) -> bool:
+        return not self.problemas_bolsatech()
+
+    def problemas_bolsatech(self) -> list[str]:
+        faltan = []
+        if not self.bolsatech_url:
+            faltan.append("BOLSATECH_URL")
+        if not self.bolsatech_claves.get("rivara"):
+            faltan.append("BOLSATECH_PASSWORD_RIVARA")
+        if not self.bolsatech_claves.get("mliaudat"):
+            faltan.append("BOLSATECH_PASSWORD_MLIAUDAT")
+        problemas = [f"Falta {f} en el .env" for f in faltan]
+        if not self.bolsatech_url_track:
+            problemas.append(
+                "Falta BOLSATECH_TRACK_URL: sin esa URL las altas quedan "
+                "registradas pero sin confirmar el trackId"
+            )
+        return problemas
 
     @property
     def oracle_listo(self) -> bool:

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block titulo %}Resultado de BolsaTech{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>Resultado</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/bolsatech">Informar otra tanda</a>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+{% set informadas = resultados | selectattr('estado', 'equalto', INFORMADA) | list %}
+{% set existentes = resultados | selectattr('estado', 'equalto', YA_ESTABA) | list %}
+{% set pendientes = resultados | selectattr('estado', 'equalto', SIN_CONFIRMAR) | list %}
+{% set fallidas = resultados | selectattr('estado', 'equalto', ERROR) | list %}
+
+<div class="rv-card ic-tarjeta">
+  <div class="ic-resumen">
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ informadas | length }}</span>
+      <span class="ic-resumen-etiqueta">informadas</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ existentes | length }}</span>
+      <span class="ic-resumen-etiqueta">ya estaban</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ pendientes | length }}</span>
+      <span class="ic-resumen-etiqueta">sin confirmar</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ fallidas | length }}</span>
+      <span class="ic-resumen-etiqueta">con error</span>
+    </div>
+  </div>
+
+  {% if pendientes %}
+    <p class="rv-nota rv-nota--info">
+      «Sin confirmar» significa que el alta salió bien y BolsaTech devolvió un
+      trackId, pero no se pudo confirmar la recepción. Suele ser que falta
+      <code>BOLSATECH_TRACK_URL</code> en el <code>.env</code>.
+    </p>
+  {% endif %}
+  {% if not fallidas and not pendientes %}
+    <p class="rv-nota rv-nota--ok">Salió todo bien.</p>
+  {% endif %}
+</div>
+
+<div class="rv-card ic-tarjeta">
+  <h3>Detalle</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Carta de porte</th><th>Estado</th><th>Track ID</th><th>Detalle</th></tr></thead>
+      <tbody>
+        {% for r in resultados %}
+        <tr>
+          <td class="rv-num">{{ r.cpe.ctg }}</td>
+          <td class="rv-num">{{ r.cpe.numero_carta_porte }}</td>
+          <td>{{ r.estado }}</td>
+          <td class="rv-num">{{ r.track_id or '—' }}</td>
+          <td>{{ r.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

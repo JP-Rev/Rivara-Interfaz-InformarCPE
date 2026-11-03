@@ -29,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 from .config import BASE_DIR, config
 from . import albor
 from . import oracle
+from . import bolsatech
 from .planillas import filas as filas_planilla
 from . import certificados
 from .correo import ErrorCorreo, enviar as enviar_mail, problemas_correo
@@ -851,6 +852,144 @@ async def guardar_equivalencias(request: Request):
     if tanda:
         return _seguir_tanda(request, usuario, tanda)
     return RedirectResponse("/albor/equivalencias?ok=1", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# BolsaTech
+# ---------------------------------------------------------------------------
+# Esta sección escribe en un sistema externo: consultar es inofensivo, informar
+# no se deshace. Por eso son dos pasos y dos botones distintos.
+
+PREFIJOS_MUESTRA = [
+    ("", "Según la planta de cada ingreso"),
+    ("7790", "Baradero (7790)"),
+    ("5140", "Alberti (5140)"),
+]
+
+
+def _pagina_bolsatech(request: Request, usuario: dict, status_code: int = 200, **extra):
+    return plantillas.TemplateResponse(
+        request, "bolsatech.html",
+        _contexto(request, usuario, seccion="bolsatech",
+                  listo=config.bolsatech_listo,
+                  problemas_bolsatech=config.problemas_bolsatech(),
+                  prefijos=PREFIJOS_MUESTRA,
+                  informadas=len(bolsatech.informadas()),
+                  **extra),
+        status_code=status_code,
+    )
+
+
+@app.get("/bolsatech", response_class=HTMLResponse)
+def ver_bolsatech(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    return _pagina_bolsatech(request, usuario)
+
+
+@app.post("/bolsatech", response_class=HTMLResponse)
+async def consultar_bolsatech(request: Request, ctgs: str = Form(""),
+                              prefijo: str = Form("")):
+    """Paso 1: busca los ingresos y muestra qué se informaría. No envía nada."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    if not config.oracle_listo:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error="Falta configurar el ERP: " +
+                                       "; ".join(config.problemas_oracle()))
+    pedidos = list(dict.fromkeys(CTG.findall(ctgs or "")))
+    if not pedidos:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error="No encontré ningún CTG. Son 11 dígitos, uno por línea.")
+    if len(pedidos) > MAX_CTG:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error=f"Son {len(pedidos)} CTG y el máximo por tanda es {MAX_CTG}.")
+    if prefijo not in {p for p, _ in PREFIJOS_MUESTRA}:
+        prefijo = ""
+    try:
+        filas = await asyncio.to_thread(oracle.buscar_bolsatech, pedidos)
+    except oracle.ErrorOracle as e:
+        return _pagina_bolsatech(request, usuario, 400, error=str(e))
+    except Exception as e:
+        log.exception("Error consultando Oracle para BolsaTech")
+        return _pagina_bolsatech(request, usuario, 400, error=f"Error consultando el ERP: {e}")
+
+    encontrados = {re.sub(r"\D", "", str(f.get("ctg") or "")) for f in filas}
+    faltantes = [c for c in pedidos if c not in encontrados]
+    if not filas:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error="Ninguno de esos CTG está en el ERP.")
+    tanda = bolsatech.guardar_tanda(filas, prefijo, faltantes)
+    return _resumen_bolsatech(request, usuario, tanda)
+
+
+def _resumen_bolsatech(request: Request, usuario: dict, tanda: str, **extra):
+    datos = bolsatech.leer_tanda(tanda)
+    if not datos:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error="La tanda venció: volvé a pegar los CTG.")
+    ya = bolsatech.informadas()
+    cpes, repetidas = [], []
+    for fila in datos["filas"]:
+        cpe = bolsatech.armar(fila, datos.get("prefijo", ""))
+        (repetidas if cpe.ctg in ya else cpes).append(cpe)
+    return plantillas.TemplateResponse(
+        request, "bolsatech_resumen.html",
+        _contexto(request, usuario, seccion="bolsatech", tanda=tanda,
+                  cpes=cpes, repetidas=repetidas,
+                  faltantes=datos.get("faltantes") or [],
+                  listas=[c for c in cpes if c.ok],
+                  con_error=[c for c in cpes if not c.ok],
+                  estado=bolsatech.estado(), **extra),
+    )
+
+
+@app.post("/bolsatech/informar", response_class=HTMLResponse)
+async def informar_bolsatech(request: Request, tanda: str = Form(""),
+                             confirmo: str = Form("")):
+    """Paso 2: envía. Es lo único de la app que escribe afuera."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    datos = bolsatech.leer_tanda(tanda)
+    if not datos:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error="La tanda venció: volvé a pegar los CTG.")
+    if confirmo != "si":
+        return _resumen_bolsatech(request, usuario, tanda,
+                                  error="Marcá la casilla para confirmar el envío.")
+    if not config.bolsatech_listo:
+        return _resumen_bolsatech(request, usuario, tanda,
+                                  error="Falta configurar BolsaTech: " +
+                                        "; ".join(config.problemas_bolsatech()))
+
+    ya = bolsatech.informadas()
+    pendientes = [c for c in (bolsatech.armar(f, datos.get("prefijo", ""))
+                              for f in datos["filas"])
+                  if c.ok and c.ctg not in ya]
+    resultados = []
+    for cpe in pendientes:
+        try:
+            situacion, track_id, detalle = await asyncio.to_thread(bolsatech.informar, cpe)
+        except bolsatech.ErrorBolsaTech as e:
+            bolsatech.anotar(cpe, bolsatech.ERROR, detalle=str(e))
+            situacion, track_id, detalle = bolsatech.ERROR, "", str(e)
+        except Exception as e:
+            log.exception("Error informando el CTG %s", cpe.ctg)
+            bolsatech.anotar(cpe, bolsatech.ERROR, detalle=str(e))
+            situacion, track_id, detalle = bolsatech.ERROR, "", str(e)
+        resultados.append({"cpe": cpe, "estado": situacion,
+                           "track_id": track_id, "detalle": detalle})
+    log.info("Usuario %s informó %s CPE a BolsaTech",
+             usuario.get("email") or usuario.get("name"), len(resultados))
+    return plantillas.TemplateResponse(
+        request, "bolsatech_resultado.html",
+        _contexto(request, usuario, seccion="bolsatech", resultados=resultados,
+                  INFORMADA=bolsatech.INFORMADA, YA_ESTABA=bolsatech.YA_ESTABA,
+                  SIN_CONFIRMAR=bolsatech.SIN_CONFIRMAR, ERROR=bolsatech.ERROR),
+    )
 
 
 @app.get("/egresos", response_class=HTMLResponse)

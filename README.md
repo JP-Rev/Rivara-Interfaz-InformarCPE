@@ -484,6 +484,91 @@ Formato de los valores, ajustable en el `.env` si Albor los rechaza:
 | `ALBOR_TIPO_FLETE` | `T` | `T` Tercero, `I` Interno |
 | `ALBOR_TICKET_DESDE` | `1000000` | desde dónde numera los tickets |
 
+## Informar CPE a BolsaTech
+
+Tercera sección del menú. Se pegan los CTG de soja, la app busca los ingresos
+en el ERP y los informa a **BolsaTech (SIBIO)** para el muestreo de
+biotecnologías. Reemplaza a los scripts `cpe_bolsatech.py` y
+`cpe_bolsatech_desde_csv.py`.
+
+### Esta sección escribe afuera
+
+Es la única parte de la app que no se limita a generar un archivo: un alta
+registrada en BolsaTech **no se deshace desde acá**. Por eso el flujo es en dos
+pasos y dos botones distintos:
+
+1. **Buscar en el ERP**: consulta y muestra qué se informaría, con los datos ya
+   armados. No envía nada.
+2. **Informar a BolsaTech**: envía. Hay que tildar una casilla de confirmación.
+
+Los scripts usaban `MODO_PRUEBA` en el `.env` para esto. La pantalla de revisión
+cumple la misma función y no depende de que nadie se olvide de cambiar una
+variable.
+
+De cada CPE queda guardado qué pasó en
+`/storage/informarcpe/bolsatech/estado.json` (lo que hacía `cpe_control.csv`),
+así una tanda repetida no vuelve a informar lo que ya estaba. Los XML enviados y
+recibidos quedan en `bolsatech/xml/`: es lo único que hay si después hay que
+reclamar algo.
+
+### Las tres operaciones
+
+| Operación | Para qué | SOAP | URL |
+|---|---|---|---|
+| `consultarCartasDePorte` | ¿ya está informada? | 1.2 | `BOLSATECH_URL` |
+| `registrarCartasDePorte` | el alta, devuelve `trackId` | 1.2 | `BOLSATECH_URL` |
+| `confirmarRecepcionDeTrackId` | confirma ese `trackId` | 1.1 | `BOLSATECH_TRACK_URL` |
+
+La autenticación va en el header, con WS-Security `UsernameToken` y la
+contraseña en texto plano: es lo que pide el servicio.
+
+**Sin `BOLSATECH_TRACK_URL`** el alta sale igual pero queda como «sin
+confirmar»; es lo que en el script aparecía como
+`REGISTRADA_PENDIENTE_CONFIRMACION`.
+
+### Las dos cuentas
+
+Hay credenciales de Rivara y de MLiaudat. Cuál se usa lo decide el **prefijo del
+identificador de muestra**: si empieza con `779` (`BOLSATECH_PREFIJO_MLIAUDAT`)
+va por MLiaudat, si no por Rivara.
+
+### El identificador de muestra
+
+Sale de `INFORMACION_BIOTECNOLOGIAS`, cruzando por CTG. Cuando no está cargado
+se arma con un prefijo más el CTG, y el prefijo se elige en la pantalla:
+
+- **Según la planta de cada ingreso** (lo normal): cada uno usa el prefijo de su
+  planta, así una tanda que mezcla Baradero y Alberti no se equivoca.
+- **Baradero (7790)** o **Alberti (5140)**: para forzarlo a mano.
+
+Ojo que el **puerto** de Alberti es `5150` y el **prefijo del id de muestra** es
+`5140`. Son distintos y es fácil confundirlos.
+
+### Qué se informa de cada CPE
+
+| Campo de BolsaTech | De dónde sale |
+|---|---|
+| `numeroCartaPorte` | sucursal interna + número interno en 8 posiciones (9 dígitos) |
+| `ctg` | `IPL_CTG` |
+| `titular` y `remitenteComercial` | CUIT y nombre del productor |
+| `destinatario` y `destino` | por planta, de `BOLSATECH_DESTINATARIOS` |
+| `codigoEspecie` | `ESP_CODIGO_SAGPYA` de la especie del ERP (23 = soja) |
+| `establecimiento` | `CAM_DESCRIPCION` del campo |
+| `codigoLocalidadProcedencia` | `CPO_LOCALIDAD_ONCCA` del código postal del campo |
+| `numeroPlantaDestino` | `PLA_NUMERO_ONCCA` |
+| `codigoLocalidadDestino` | por planta, de `BOLSATECH_PLANTAS` |
+| `idMuestra` | `INB_IDENTIFICADOR_MUESTRA`, o prefijo + CTG |
+| `kilosNetosSecos` | `IPL_PESO_NETO`, redondeado |
+| `fechaHoraConfirmacion` | `IPL_FECHA_HORA` |
+
+Los scripts mandaban `codigoEspecie` fijo en `23`. Acá sale de
+`ESP_CODIGO_SAGPYA`, que para las cinco especies de soja del ERP (08, 14, 20,
+24, 38) debería dar justamente 23; si el ERP no lo trae se usa
+`BOLSATECH_ESPECIE_DEFECTO`.
+
+Una CPE a la que le falte un dato obligatorio **no se informa**: aparece en la
+pantalla con el motivo, para corregirla en el ERP.
+
 ## Qué columnas completa, y de dónde
 
 | Columna de Visec | Origen (campos de la respuesta, manual wscpe v2.0.5) |

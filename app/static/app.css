@@ -384,3 +384,6 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 /* Con cientos de cultivos la tabla no puede empujar la página entera. */
 .ic-abm-caja { max-height: 60vh; overflow-y: auto; }
 .ic-abm tr[hidden] { display: none; }
+
+.ic-confirmar { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 14px; font-weight: 600; }
+.ic-confirmar input { width: 18px; height: 18px; accent-color: var(--rv-bordo); }

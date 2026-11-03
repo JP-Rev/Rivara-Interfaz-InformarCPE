@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block titulo %}Revisar antes de informar{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>Revisá antes de informar</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/bolsatech">Volver</a>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+<div class="rv-card ic-tarjeta">
+  <div class="ic-resumen">
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ listas | length }}</span>
+      <span class="ic-resumen-etiqueta">se van a informar</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ con_error | length }}</span>
+      <span class="ic-resumen-etiqueta">con datos faltantes</span>
+    </div>
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ repetidas | length }}</span>
+      <span class="ic-resumen-etiqueta">ya informadas antes</span>
+    </div>
+    {% if faltantes %}
+    <div class="ic-resumen-dato">
+      <span class="ic-resumen-numero rv-num">{{ faltantes | length }}</span>
+      <span class="ic-resumen-etiqueta">no están en el ERP</span>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+  {% if listas %}
+  <form method="post" action="/bolsatech/informar" data-formulario>
+    <input type="hidden" name="tanda" value="{{ tanda }}">
+    <p class="rv-nota rv-nota--info">
+      Esto <strong>registra las CPE en BolsaTech</strong>. No se deshace desde
+      acá: para dar de baja un alta hay que pedirlo del otro lado.
+    </p>
+    <label class="ic-confirmar">
+      <input type="checkbox" name="confirmo" value="si">
+      <span>Confirmo informar {{ listas | length }} CPE a BolsaTech</span>
+    </label>
+    <div class="ic-acciones">
+      <button class="rv-btn rv-btn--peligro" type="submit" data-enviar="Informando…">
+        Informar a BolsaTech
+      </button>
+      <a class="rv-btn rv-btn--secundario" href="/bolsatech">Cancelar</a>
+      <span class="rv-meta">Tarda unos segundos por CPE.</span>
+    </div>
+  </form>
+  {% else %}
+    <p class="rv-nota rv-nota--info">No hay ninguna CPE para informar.</p>
+  {% endif %}
+</div>
+
+{% if listas %}
+<div class="rv-card ic-tarjeta">
+  <h3>Se van a informar</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla ic-tabla-ancha">
+      <thead><tr>
+        <th>CTG</th><th>Carta de porte</th><th>Sociedad</th><th>Productor</th>
+        <th>Establecimiento</th><th>Especie</th><th>Planta ONCCA</th>
+        <th>Id. muestra</th><th>Cuenta</th><th>Kilos</th><th>Fecha</th>
+      </tr></thead>
+      <tbody>
+        {% for c in listas %}
+        <tr>
+          <td class="rv-num">{{ c.ctg }}</td>
+          <td class="rv-num">{{ c.numero_carta_porte }}</td>
+          <td>{{ c.sociedad }}</td>
+          <td>{{ c.productor }}</td>
+          <td>{{ c.establecimiento }}</td>
+          <td>{{ c.especie_erp }} <small class="rv-meta">({{ c.especie }})</small></td>
+          <td class="rv-num">{{ c.planta_oncca }}</td>
+          <td class="rv-num">{{ c.id_muestra }}</td>
+          <td>{{ c.cuenta }}</td>
+          <td class="rv-num">{{ c.kilos }}</td>
+          <td class="rv-num">{{ c.fecha[:10] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if con_error %}
+<div class="rv-card ic-tarjeta">
+  <h3>Con datos faltantes</h3>
+  <p class="ic-ayuda">Estas no se informan. Hay que completar el dato en el ERP.</p>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Ingreso</th><th>Qué falta</th></tr></thead>
+      <tbody>
+        {% for c in con_error %}
+        <tr>
+          <td class="rv-num">{{ c.ctg or '—' }}</td>
+          <td class="rv-num">{{ c.ingreso }}</td>
+          <td><ul class="ic-lista ic-lista--compacta">
+            {% for e in c.errores %}<li>{{ e }}</li>{% endfor %}
+          </ul></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if repetidas %}
+<div class="rv-card ic-tarjeta">
+  <details class="ic-plegable">
+    <summary>{{ repetidas | length }} ya se habían informado y quedan afuera</summary>
+    <div class="ic-tabla-scroll">
+      <table class="rv-tabla">
+        <thead><tr><th>CTG</th><th>Estado</th><th>Track ID</th><th>Cuándo</th></tr></thead>
+        <tbody>
+          {% for c in repetidas %}
+          {% set e = estado.get(c.ctg, {}) %}
+          <tr>
+            <td class="rv-num">{{ c.ctg }}</td><td>{{ e.estado or '—' }}</td>
+            <td class="rv-num">{{ e.track_id or '—' }}</td><td>{{ e.cuando or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+{% endif %}
+
+{% if faltantes %}
+<div class="rv-card ic-tarjeta">
+  <h3>{{ faltantes | length }} CTG no están en el ERP</h3>
+  <ul class="ic-lista ic-lista--compacta">
+    {% for c in faltantes %}<li class="rv-num">{{ c }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<script>
+  document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', (e) => {
+    const casilla = f.querySelector('input[name=confirmo]')
+    if (casilla && !casilla.checked) { e.preventDefault(); casilla.focus(); return }
+    const b = f.querySelector('[data-enviar]'); b.disabled = true; b.textContent = b.dataset.enviar
+  }))
+</script>
+{% endblock %}

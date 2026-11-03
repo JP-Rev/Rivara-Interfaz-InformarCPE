@@ -11,6 +11,7 @@
 </head>
 <body>
 {% set en_albor = seccion == 'albor' %}
+{% set en_bolsatech = seccion == 'bolsatech' %}
 <div class="ic" id="ic">
   <!-- Mismo patrón que la barra lateral del portal: fija en escritorio, panel
        que se corre en pantallas chicas, con velo detrás. -->
@@ -19,18 +20,18 @@
   <!-- Arriba, a todo el ancho: la barra y el encabezado. Abajo, la barra
   lateral y el contenido, con los bordes alineados al encabezado. -->
   <div class="ic-arriba">
-    <header class="ic-barra{% if en_albor %} ic-barra--solo-menu{% endif %}">
+    <header class="ic-barra{% if en_albor or en_bolsatech %} ic-barra--solo-menu{% endif %}">
       <button type="button" class="ic-hamburguesa" id="abrir-menu" aria-label="Abrir menú"
               aria-expanded="false" aria-controls="menu-lateral">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
       </button>
-      {% if not en_albor %}
+      {% if not en_albor and not en_bolsatech %}
       <span class="rv-chip {% if es_produccion %}rv-chip--tint{% else %}rv-chip--neutro{% endif %}">
         ARCA · {{ entorno }}
       </span>
       {% endif %}
       <div class="ic-barra-acciones">
-        {% if es_admin and modo and not en_albor %}
+        {% if es_admin and modo and not en_albor and not en_bolsatech %}
           <a class="rv-btn rv-btn--fantasma" href="/modo/elegir">Versión {{ modo }} · Cambiar versión</a>
         {% endif %}
       </div>
@@ -38,7 +39,12 @@
 
     <section class="rv-hero ic-hero">
       <span class="ic-hero-logo"><img src="/static/logo-rivara.png" alt="Rivara"></span>
-      {% if en_albor %}
+      {% if en_bolsatech %}
+      <span class="ic-hero-texto">
+        <strong>Informar CPE a BolsaTech</strong>
+        <small>Las CPE de soja, para el muestreo de biotecnologías de SIBIO.</small>
+      </span>
+      {% elif en_albor %}
       <span class="ic-hero-texto">
         <strong>Importar CPE a Albor</strong>
         <small>De los ingresos a planta del ERP a la planilla de cosechas de Albor.</small>
@@ -58,7 +64,7 @@
     <!-- Título de la página y solapas: también a todo el ancho, así la barra
          lateral y la primera tarjeta empiezan a la misma altura. -->
     <div class="ic-encabezado-pagina">
-      {% if seccion not in ('albor', 'certificados') %}
+      {% if seccion not in ('albor', 'certificados', 'bolsatech') %}
       <nav class="ic-solapas" aria-label="Tipo de movimiento">
         <a class="ic-solapa {% if seccion != 'egresos' %}ic-solapa--activa{% endif %}" href="/"
            {% if seccion != 'egresos' %}aria-current="page"{% endif %}>Ingresos</a>
@@ -90,8 +96,8 @@
       </div>
 
       <nav class="rv-nav" aria-label="Secciones">
-        <a class="rv-nav-item {% if seccion not in ('albor', 'certificados') %}rv-nav-item--activo{% endif %}" href="/"
-           {% if seccion not in ('albor', 'certificados') %}aria-current="page"{% endif %}>
+        <a class="rv-nav-item {% if seccion not in ('albor', 'certificados', 'bolsatech') %}rv-nav-item--activo{% endif %}" href="/"
+           {% if seccion not in ('albor', 'certificados', 'bolsatech') %}aria-current="page"{% endif %}>
           <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M3 6h10v10H3zM13 9h4l4 4v3h-8z" /><circle cx="7" cy="18" r="2" /><circle cx="17.5" cy="18" r="2" />
           </svg>
@@ -103,6 +109,13 @@
             <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10M3 15h18" />
           </svg>
           <span class="ic-nav-label">Importar CPE a Albor</span>
+        </a>
+        <a class="rv-nav-item {% if seccion == 'bolsatech' %}rv-nav-item--activo{% endif %}" href="/bolsatech"
+           {% if seccion == 'bolsatech' %}aria-current="page"{% endif %}>
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v7M9 6l3-3 3 3" /><path d="M5 12h14v8H5z" /><path d="M9 16h6" />
+          </svg>
+          <span class="ic-nav-label">Informar a BolsaTech</span>
         </a>
         {% if es_admin %}
         <a class="rv-nav-item {% if seccion == 'certificados' %}rv-nav-item--activo{% endif %}" href="/certificados"
@@ -144,7 +157,7 @@
       </a>
     {% endif %}
 
-    {% if problemas and not en_albor %}
+    {% if problemas and not en_albor and not en_bolsatech %}
       <div class="rv-card">
         <p class="rv-nota rv-nota--error">
           Falta configuración antes de poder consultar ARCA:

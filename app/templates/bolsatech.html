@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block titulo %}Informar a BolsaTech{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>Informar CPE a BolsaTech</h2>
+  {% if informadas %}<span class="rv-meta">{{ informadas }} CPE ya informadas</span>{% endif %}
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+<form class="rv-card ic-tarjeta" method="post" action="/bolsatech" data-formulario>
+  <p class="ic-ayuda">
+    Pegá los CTG de soja a informar, uno por línea. La app los busca en el ERP y
+    te muestra <strong>qué se va a informar antes de enviar nada</strong>.
+    Enviar es un segundo paso.
+  </p>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+  {% if problemas_bolsatech %}
+    <p class="rv-nota rv-nota--info">
+      Se puede consultar, pero todavía no informar. Falta en el <code>.env</code>:
+      <ul class="ic-lista ic-lista--compacta">
+        {% for p in problemas_bolsatech %}<li>{{ p }}</li>{% endfor %}
+      </ul>
+    </p>
+  {% endif %}
+
+  <label class="rv-campo">
+    <span class="rv-label">Números de CTG</span>
+    <textarea class="rv-input ic-ctgs" name="ctgs" rows="6" autofocus
+              placeholder="10134580361&#10;10134826591&#10;…"></textarea>
+  </label>
+  <p class="rv-meta" id="contador-ctg"></p>
+
+  <label class="rv-campo">
+    <span class="rv-label">Identificador de muestra, cuando el ERP no lo tiene</span>
+    <select class="rv-select" name="prefijo">
+      {% for valor, etiqueta in prefijos %}
+      <option value="{{ valor }}">{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="ic-ayuda">
+    Se arma con ese prefijo y el CTG. Si lo dejás en «según la planta», cada
+    ingreso usa el prefijo de su propia planta, que es lo correcto cuando la
+    tanda mezcla Baradero y Alberti.
+  </p>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Buscando…">
+      Buscar en el ERP
+    </button>
+  </div>
+</form>
+
+<div class="rv-card ic-tarjeta">
+  <h3>Qué hace esta pantalla</h3>
+  <ol class="ic-lista">
+    <li>Busca cada CTG en los ingresos a planta del ERP.</li>
+    <li>Arma los datos que pide BolsaTech: carta de porte, productor,
+      establecimiento, localidad, planta de destino, identificador de muestra,
+      kilos netos secos.</li>
+    <li>Te muestra el detalle y marca las que tienen algún dato faltante.</li>
+    <li>Al confirmar, por cada CPE pregunta si ya está informada, la registra y
+      confirma el <em>trackId</em> que devuelve BolsaTech.</li>
+  </ol>
+  <p class="ic-ayuda">
+    Las que ya se informaron antes quedan afuera: no se informa dos veces la
+    misma CPE.
+  </p>
+</div>
+
+<script>
+  const campoCtg = document.querySelector('textarea[name=ctgs]')
+  const contador = document.getElementById('contador-ctg')
+  const contar = () => {
+    const n = new Set(campoCtg.value.match(/\d{11}/g) || []).size
+    contador.textContent = n ? `${n} CTG` : ''
+  }
+  campoCtg.addEventListener('input', contar)
+  contar()
+  document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', (e) => {
+    if (!campoCtg.value.trim()) { e.preventDefault(); campoCtg.focus(); return }
+    const b = f.querySelector('[data-enviar]'); b.disabled = true; b.textContent = b.dataset.enviar
+  }))
+</script>
+{% endblock %}
