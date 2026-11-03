@@ -387,3 +387,5 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 
 .ic-confirmar { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 14px; font-weight: 600; }
 .ic-confirmar input { width: 18px; height: 18px; accent-color: var(--rv-bordo); }
+
+.ic-titulo-acciones { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }

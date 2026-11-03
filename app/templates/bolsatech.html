@@ -4,7 +4,10 @@
 {% block titulo_pagina %}
 <div class="ic-titulo">
   <h2>Informar CPE a BolsaTech</h2>
-  {% if informadas %}<span class="rv-meta">{{ informadas }} CPE ya informadas</span>{% endif %}
+  <span class="ic-titulo-acciones">
+    {% if informadas %}<span class="rv-meta">{{ informadas }} CPE ya informadas</span>{% endif %}
+    <a class="rv-btn rv-btn--fantasma" href="/bolsatech/pendientes">Pendientes de confirmar</a>
+  </span>
 </div>
 {% endblock %}
 

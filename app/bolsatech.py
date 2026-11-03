@@ -503,3 +503,108 @@ def informar(cpe: Cpe) -> tuple[str, str, str]:
                if not config.bolsatech_url_track else "BolsaTech no confirmó el trackId")
     anotar(cpe, SIN_CONFIRMAR, track_id, detalle)
     return SIN_CONFIRMAR, track_id, detalle
+
+
+# ---------------------------------------------------------------------------
+# Confirmar lo que quedó pendiente
+# ---------------------------------------------------------------------------
+# El script viejo guardaba el trackId en cpe_control.csv, pero sin
+# BOLSATECH_TRACK_URL no podía confirmarlo. Esas altas se pueden confirmar
+# ahora: el trackId sigue siendo el mismo.
+
+# Estados del CSV del script -> estados de la app.
+ESTADOS_CSV = {
+    "REGISTRADA_Y_CONFIRMADA": INFORMADA,
+    "REGISTRADA_PENDIENTE_CONFIRMACION": SIN_CONFIRMAR,
+    "YA_EXISTE": YA_ESTABA,
+    "ERROR": ERROR,
+    "ERROR_REGISTRO": ERROR,
+    "XML_GENERADO_PRUEBA": ERROR,
+}
+
+
+def importar_control(contenido: bytes) -> dict[str, int]:
+    """Carga el cpe_control.csv del script. Devuelve cuántas quedaron en cada
+    estado. Lo que ya está en la app no se pisa: manda lo más nuevo."""
+    import csv
+    import io as _io
+
+    try:
+        texto = contenido.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        texto = contenido.decode("latin-1")
+    filas = list(csv.DictReader(_io.StringIO(texto), delimiter=";"))
+    if not filas or "ctg" not in (filas[0] or {}):
+        raise ErrorBolsaTech(
+            "No parece el cpe_control.csv del script: tiene que tener las "
+            "columnas ctg, estado y track_id, separadas por punto y coma.")
+
+    datos = estado()
+    conteo: dict[str, int] = {}
+    for fila in filas:
+        ctg = re.sub(r"\D", "", (fila.get("ctg") or ""))
+        if len(ctg) != 11:
+            continue
+        situacion = ESTADOS_CSV.get((fila.get("estado") or "").strip().upper(), ERROR)
+        anterior = datos.get(ctg, {})
+        # Si acá ya quedó resuelta, el CSV no la vuelve atrás.
+        if anterior.get("estado") in FINALES:
+            conteo["ya_estaban_en_la_app"] = conteo.get("ya_estaban_en_la_app", 0) + 1
+            continue
+        datos[ctg] = {
+            "estado": situacion,
+            "numero_carta_porte": (fila.get("numero_carta_porte") or "").strip(),
+            "id_muestra": (fila.get("id_muestra") or "").strip(),
+            "cuenta": _cuenta_de(fila.get("id_muestra") or ""),
+            "track_id": (fila.get("track_id") or "").strip(),
+            "detalle": (fila.get("descripcion_error") or "").strip(),
+            "intentos": int((fila.get("intentos") or "0").strip() or 0),
+            "cuando": (fila.get("fecha_ultimo_intento") or "").strip(),
+            "origen": "cpe_control.csv",
+        }
+        conteo[situacion] = conteo.get(situacion, 0) + 1
+    _guardar_estado(datos)
+    return conteo
+
+
+def _cuenta_de(id_muestra: str) -> str:
+    prefijo = config.bolsatech_prefijo_mliaudat
+    return "mliaudat" if prefijo and (id_muestra or "").strip().startswith(prefijo) else "rivara"
+
+
+def pendientes_de_confirmar() -> list[dict]:
+    """Las altas que salieron bien pero cuyo trackId quedó sin confirmar."""
+    salida = []
+    for ctg, d in sorted(estado().items()):
+        if d.get("estado") == SIN_CONFIRMAR and d.get("track_id"):
+            salida.append(dict(d, ctg=ctg))
+    return salida
+
+
+def _cpe_minima(ctg: str, d: dict) -> Cpe:
+    """Para confirmar alcanza con el CTG y la cuenta; el resto no va al XML."""
+    return Cpe(
+        ctg=ctg,
+        numero_carta_porte=d.get("numero_carta_porte", ""),
+        cuit_productor="", productor="", especie="", establecimiento="",
+        localidad_procedencia="", planta_oncca="", localidad_destino="",
+        id_muestra=d.get("id_muestra", ""), kilos="", fecha="",
+    )
+
+
+def confirmar_pendiente(ctg: str) -> tuple[str, str]:
+    """Confirma el trackId de una CPE. Devuelve (estado, detalle)."""
+    d = estado().get(ctg)
+    if not d or not d.get("track_id"):
+        return ERROR, "No hay trackId guardado para ese CTG"
+    cpe = _cpe_minima(ctg, d)
+    try:
+        if confirmar(cpe, d["track_id"]):
+            anotar(cpe, INFORMADA, d["track_id"])
+            return INFORMADA, ""
+    except ErrorBolsaTech as error:
+        anotar(cpe, SIN_CONFIRMAR, d["track_id"], str(error))
+        return SIN_CONFIRMAR, str(error)
+    detalle = "BolsaTech no devolvió ese trackId entre los confirmados"
+    anotar(cpe, SIN_CONFIRMAR, d["track_id"], detalle)
+    return SIN_CONFIRMAR, detalle

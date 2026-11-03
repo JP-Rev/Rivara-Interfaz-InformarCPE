@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block titulo %}Pendientes de confirmar{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>Pendientes de confirmar</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/bolsatech">Volver</a>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+<div class="rv-card ic-tarjeta">
+  <p class="ic-ayuda">
+    Son altas que BolsaTech aceptó y devolvieron un <em>trackId</em>, pero cuya
+    recepción nunca se confirmó, casi siempre porque faltaba la URL de
+    confirmación. El <em>trackId</em> sigue valiendo, así que se pueden
+    confirmar ahora.
+  </p>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+  {% if ok %}<p class="rv-nota rv-nota--ok">{{ ok }}</p>{% endif %}
+  {% if not hay_track_url %}
+    <p class="rv-nota rv-nota--error">
+      Falta <code>BOLSATECH_TRACK_URL</code> en el <code>.env</code>. Sin esa URL
+      no se puede confirmar nada.
+    </p>
+  {% endif %}
+
+  {% if pendientes %}
+  <form method="post" action="/bolsatech/confirmar" data-formulario>
+    <p class="rv-nota rv-nota--info">
+      Esto habla con BolsaTech, pero <strong>solo confirma recepciones</strong>:
+      no da de alta ninguna CPE nueva.
+    </p>
+    <label class="ic-confirmar">
+      <input type="checkbox" name="confirmo" value="si">
+      <span>Confirmar {{ pendientes | length }} trackId en BolsaTech</span>
+    </label>
+    <div class="ic-acciones">
+      <button class="rv-btn rv-btn--primario" type="submit" data-enviar="Confirmando…">
+        Confirmar los pendientes
+      </button>
+    </div>
+  </form>
+  {% else %}
+    <p class="rv-nota rv-nota--ok">No hay nada pendiente de confirmar.</p>
+  {% endif %}
+</div>
+
+{% if resultados %}
+<div class="rv-card ic-tarjeta">
+  <h3>Resultado</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Track ID</th><th>Estado</th><th>Detalle</th></tr></thead>
+      <tbody>
+        {% for r in resultados %}
+        <tr>
+          <td class="rv-num">{{ r.ctg }}</td>
+          <td class="rv-num">{{ r.track_id }}</td>
+          <td>{{ r.estado }}</td>
+          <td>{{ r.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if pendientes %}
+<div class="rv-card ic-tarjeta">
+  <h3>{{ pendientes | length }} sin confirmar</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Carta de porte</th><th>Track ID</th><th>Cuenta</th><th>Desde</th></tr></thead>
+      <tbody>
+        {% for p in pendientes %}
+        <tr>
+          <td class="rv-num">{{ p.ctg }}</td>
+          <td class="rv-num">{{ p.numero_carta_porte or '—' }}</td>
+          <td class="rv-num">{{ p.track_id }}</td>
+          <td>{{ p.cuenta or '—' }}</td>
+          <td>{{ p.cuando or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<form class="rv-card ic-tarjeta" method="post" action="/bolsatech/importar-control"
+      enctype="multipart/form-data">
+  <h3>Traer el historial del script viejo</h3>
+  <p class="ic-ayuda">
+    Subí el <code>cpe_control.csv</code> que genera <code>cpe_bolsatech.py</code>
+    (está en su carpeta <code>data/</code>). De ahí salen los <em>trackId</em>
+    que quedaron sin confirmar, y además la app se entera de qué CPE ya
+    informaste, para no informarlas de nuevo.
+  </p>
+  <label class="ic-soltar" data-zona>
+    <input type="file" name="archivo" accept=".csv,.txt" hidden required>
+    <span class="rv-disco rv-disco--md" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4M8 8l4-4 4 4" /><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+      </svg>
+    </span>
+    <span class="ic-soltar-texto">
+      <strong data-titulo>Soltá acá el cpe_control.csv</strong>
+      <small data-detalle>o tocá para elegirlo</small>
+    </span>
+  </label>
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit">Importar el historial</button>
+  </div>
+</form>
+
+<script>
+  const zona = document.querySelector('[data-zona]')
+  const archivo = zona.querySelector('input[type=file]')
+  const mostrar = (a) => {
+    if (!a) return
+    zona.classList.add('ic-soltar--cargado')
+    zona.querySelector('[data-titulo]').textContent = a.name
+    zona.querySelector('[data-detalle]').textContent = `${Math.max(1, Math.round(a.size / 1024))} kB`
+  }
+  archivo.addEventListener('change', () => mostrar(archivo.files[0]))
+  ;['dragenter', 'dragover'].forEach((ev) => zona.addEventListener(ev, (e) => { e.preventDefault(); zona.classList.add('ic-soltar--encima') }))
+  ;['dragleave', 'dragend'].forEach((ev) => zona.addEventListener(ev, () => zona.classList.remove('ic-soltar--encima')))
+  zona.addEventListener('drop', (e) => {
+    e.preventDefault(); zona.classList.remove('ic-soltar--encima')
+    const a = e.dataTransfer.files[0]; if (!a) return
+    const lista = new DataTransfer(); lista.items.add(a); archivo.files = lista.files; mostrar(a)
+  })
+  ;['dragover', 'drop'].forEach((ev) => document.addEventListener(ev, (e) => { if (!e.target.closest('[data-zona]')) e.preventDefault() }))
+  document.querySelectorAll('[data-formulario]').forEach((f) => f.addEventListener('submit', (e) => {
+    const casilla = f.querySelector('input[name=confirmo]')
+    if (casilla && !casilla.checked) { e.preventDefault(); casilla.focus(); return }
+    const b = f.querySelector('[data-enviar]'); b.disabled = true; b.textContent = b.dataset.enviar
+  }))
+</script>
+{% endblock %}

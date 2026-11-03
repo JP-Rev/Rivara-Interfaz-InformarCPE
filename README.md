@@ -544,6 +544,26 @@ se arma con un prefijo más el CTG, y el prefijo se elige en la pantalla:
 Ojo que el **puerto** de Alberti es `5150` y el **prefijo del id de muestra** es
 `5140`. Son distintos y es fácil confundirlos.
 
+### Pendientes de confirmar (`/bolsatech/pendientes`)
+
+Un alta que salió bien pero cuyo `trackId` nunca se confirmó queda como «sin
+confirmar». El `trackId` sigue valiendo, así que se puede confirmar después,
+una vez configurada `BOLSATECH_TRACK_URL`.
+
+Esa pantalla también **importa el `cpe_control.csv`** del script viejo (está en
+su carpeta `data/`). De ahí salen los `trackId` que quedaron pendientes y, de
+paso, la app se entera de qué CPE ya están informadas para no repetirlas. Los
+estados se traducen así:
+
+| En el CSV | En la app |
+|---|---|
+| `REGISTRADA_Y_CONFIRMADA` | informada |
+| `REGISTRADA_PENDIENTE_CONFIRMACION` | sin confirmar |
+| `YA_EXISTE` | ya estaba |
+| `ERROR`, `ERROR_REGISTRO` | error |
+
+Lo que en la app ya quedó resuelto no se pisa con el CSV: manda lo más nuevo.
+
 ### Qué se informa de cada CPE
 
 | Campo de BolsaTech | De dónde sale |

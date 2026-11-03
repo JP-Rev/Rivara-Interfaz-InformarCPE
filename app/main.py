@@ -992,6 +992,71 @@ async def informar_bolsatech(request: Request, tanda: str = Form(""),
     )
 
 
+@app.get("/bolsatech/pendientes", response_class=HTMLResponse)
+def ver_pendientes(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    return _pagina_pendientes(request, usuario)
+
+
+def _pagina_pendientes(request: Request, usuario: dict, status_code: int = 200, **extra):
+    return plantillas.TemplateResponse(
+        request, "bolsatech_pendientes.html",
+        _contexto(request, usuario, seccion="bolsatech",
+                  pendientes=bolsatech.pendientes_de_confirmar(),
+                  hay_track_url=bool(config.bolsatech_url_track), **extra),
+        status_code=status_code,
+    )
+
+
+@app.post("/bolsatech/importar-control", response_class=HTMLResponse)
+async def importar_control(request: Request, archivo: UploadFile = File(...)):
+    """Carga el cpe_control.csv del script viejo, para recuperar los trackId."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    contenido = await archivo.read()
+    try:
+        conteo = bolsatech.importar_control(contenido)
+    except bolsatech.ErrorBolsaTech as e:
+        return _pagina_pendientes(request, usuario, 400, error=str(e))
+    except Exception as e:
+        log.warning("No se pudo leer %s: %s", archivo.filename, e)
+        return _pagina_pendientes(request, usuario, 400, error=f"No se pudo leer el archivo: {e}")
+    log.info("Usuario %s importó el control de BolsaTech: %s",
+             usuario.get("email") or usuario.get("name"), conteo)
+    detalle = ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(conteo.items()))
+    return _pagina_pendientes(request, usuario, ok=f"Control importado: {detalle or 'sin filas'}.")
+
+
+@app.post("/bolsatech/confirmar", response_class=HTMLResponse)
+async def confirmar_pendientes(request: Request, confirmo: str = Form("")):
+    """Confirma los trackId que quedaron pendientes. Vuelve a hablar con
+    BolsaTech, pero solo confirma recepciones: no da de alta nada nuevo."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    if confirmo != "si":
+        return _pagina_pendientes(request, usuario, 400,
+                                  error="Marcá la casilla para confirmar.")
+    if not config.bolsatech_url_track:
+        return _pagina_pendientes(request, usuario, 400,
+                                  error="Falta BOLSATECH_TRACK_URL en el .env.")
+    resultados = []
+    for item in bolsatech.pendientes_de_confirmar():
+        situacion, detalle = await asyncio.to_thread(
+            bolsatech.confirmar_pendiente, item["ctg"])
+        resultados.append({"ctg": item["ctg"], "track_id": item.get("track_id", ""),
+                           "estado": situacion, "detalle": detalle})
+    confirmadas = sum(1 for r in resultados if r["estado"] == bolsatech.INFORMADA)
+    log.info("Usuario %s confirmó %s de %s trackId pendientes",
+             usuario.get("email") or usuario.get("name"), confirmadas, len(resultados))
+    return _pagina_pendientes(
+        request, usuario, resultados=resultados,
+        ok=f"{confirmadas} de {len(resultados)} confirmadas." if resultados else None)
+
+
 @app.get("/egresos", response_class=HTMLResponse)
 def egresos(request: Request):
     """Solapa de egresos: todavia sin construir."""
