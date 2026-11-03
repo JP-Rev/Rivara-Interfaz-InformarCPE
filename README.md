@@ -604,6 +604,12 @@ cómodo a propósito: preferir reintentar antes que perder una CPE.
 El botón **Correr ahora** hace lo mismo a mano. Sin tildar la casilla solo
 muestra qué haría, sin enviar nada.
 
+**Las fechas se pueden elegir** en esa misma pantalla. Vacías, usa el período
+automático. Con fechas, informa solo ese período y **no mueve la fecha de
+corte**: moverla a un rango elegido a mano saltearía todo lo que quedó entre
+medio. «Hasta» vacío significa hasta ahora, y una fecha «hasta» incluye el día
+entero.
+
 ### Consultar el estado de una CPE en BolsaTech
 
 ```bash

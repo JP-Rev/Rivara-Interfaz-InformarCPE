@@ -649,19 +649,32 @@ def _guardar_corrida(hasta: datetime) -> None:
     temporal.replace(ULTIMA_CORRIDA)
 
 
-def corrida(enviar_de_verdad: bool = True) -> dict:
+def corrida(enviar_de_verdad: bool = True,
+            desde: datetime | None = None,
+            hasta: datetime | None = None) -> dict:
     """Busca por fecha lo que falta informar y lo informa.
 
-    La fecha de corte solo avanza si salió todo bien: si algo falló, la próxima
-    corrida vuelve a tomar ese período en vez de saltearlo.
+    Sin fechas usa el período automático: desde donde quedó la corrida anterior
+    hasta ahora, y la fecha de corte solo avanza si salió todo bien. Si algo
+    falló, la próxima corrida vuelve a tomar ese período en vez de saltearlo.
+
+    Con `desde` o `hasta` es una corrida a mano de un período puntual, y
+    entonces **la fecha de corte no se toca**: mover el corte a un rango
+    elegido a mano saltearía todo lo que quedó entre medio.
     """
     from . import oracle
 
-    desde, origen = desde_cuando()
-    desde -= timedelta(minutes=max(config.bolsatech_solapamiento, 0))
-    hasta = datetime.now().replace(microsecond=0)
+    manual = desde is not None or hasta is not None
+    if desde is None:
+        desde, origen = desde_cuando()
+        desde -= timedelta(minutes=max(config.bolsatech_solapamiento, 0))
+    else:
+        origen = "la fecha elegida"
+    if hasta is None:
+        hasta = datetime.now()
+    hasta = hasta.replace(microsecond=0)
     if desde >= hasta:
-        raise ErrorBolsaTech("La fecha desde quedó igual o posterior a la de corte.")
+        raise ErrorBolsaTech("La fecha «desde» quedó igual o posterior a la «hasta».")
 
     filas = oracle.buscar_bolsatech(desde=desde, hasta=hasta,
                                     especies=config.bolsatech_especies)
@@ -673,7 +686,7 @@ def corrida(enviar_de_verdad: bool = True) -> dict:
     limite = max(config.bolsatech_limite, 1)
     incompleta = len(pendientes_) > limite
     resumen = {
-        "desde": desde, "hasta": hasta, "origen_fecha": origen,
+        "desde": desde, "hasta": hasta, "origen_fecha": origen, "manual": manual,
         "encontradas": len(todas), "con_error": len(con_error),
         "resultados": [], "incompleta": incompleta, "avanzo": False,
         "errores_datos": [{"ctg": c.ctg, "motivo": "; ".join(c.errores)} for c in con_error],
@@ -695,7 +708,9 @@ def corrida(enviar_de_verdad: bool = True) -> dict:
         resumen["resultados"].append({"ctg": cpe.ctg, "estado": situacion,
                                       "track_id": track_id, "detalle": detalle})
 
-    if not incompleta and not hubo_problemas:
+    if manual:
+        log.info("Corrida a mano de un período elegido: la fecha de corte no se toca")
+    elif not incompleta and not hubo_problemas:
         _guardar_corrida(hasta)
         resumen["avanzo"] = True
     else:

@@ -19,8 +19,17 @@
   <p class="ic-ayuda">
     Período buscado: <strong>{{ r.desde.strftime('%d/%m/%Y %H:%M') }}</strong> a
     <strong>{{ r.hasta.strftime('%d/%m/%Y %H:%M') }}</strong>
-    (el desde sale de {{ r.origen_fecha }}, menos el solapamiento).
+    {% if r.manual %}(período elegido a mano){% else %}(el desde sale de
+    {{ r.origen_fecha }}, menos el solapamiento){% endif %}.
   </p>
+
+  {% if r.manual %}
+    <p class="rv-nota rv-nota--info">
+      Período elegido a mano, así que <strong>la fecha de corte de la corrida
+      automática no se toca</strong>: sigue donde estaba y no se saltea lo que
+      quedó entre medio.
+    </p>
+  {% endif %}
 
   {% if solo_ver %}
     <div class="ic-resumen">

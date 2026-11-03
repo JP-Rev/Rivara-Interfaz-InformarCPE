@@ -87,6 +87,23 @@
     {% endif %}
   </p>
 
+  <div class="ic-fechas">
+    <label class="rv-campo">
+      <span class="rv-label">Desde</span>
+      <input class="rv-input" type="date" name="desde">
+    </label>
+    <label class="rv-campo">
+      <span class="rv-label">Hasta</span>
+      <input class="rv-input" type="date" name="hasta">
+    </label>
+  </div>
+  <p class="ic-ayuda">
+    Si dejás las dos vacías usa el período automático: desde donde quedó la
+    corrida anterior hasta ahora. Si ponés fechas, informa solo ese período y
+    <strong>no mueve la fecha de corte</strong>, así no se saltea lo que quedó
+    entre medio. «Hasta» vacío significa hasta ahora.
+  </p>
+
   <label class="ic-confirmar">
     <input type="checkbox" name="confirmo" value="si">
     <span>Informar de verdad lo que encuentre. Sin marcar, solo muestra qué haría.</span>

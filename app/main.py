@@ -1039,8 +1039,21 @@ async def informar_bolsatech(request: Request, tanda: str = Form(""),
     )
 
 
+def _fecha_form(valor: str, campo: str, fin_del_dia: bool = False):
+    """Lo que manda un <input type=date>, o None si vino vacío."""
+    valor = (valor or "").strip()
+    if not valor:
+        return None
+    try:
+        fecha = datetime.strptime(valor, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"La fecha «{campo}» no es una fecha válida.")
+    return fecha.replace(hour=23, minute=59, second=59) if fin_del_dia else fecha
+
+
 @app.post("/bolsatech/corrida", response_class=HTMLResponse)
-async def correr_bolsatech(request: Request, confirmo: str = Form("")):
+async def correr_bolsatech(request: Request, confirmo: str = Form(""),
+                           desde: str = Form(""), hasta: str = Form("")):
     """Corre ahora la búsqueda por fechas, sin esperar al automático."""
     usuario = _con_sesion(request)
     if isinstance(usuario, RedirectResponse):
@@ -1051,7 +1064,13 @@ async def correr_bolsatech(request: Request, confirmo: str = Form("")):
                                  error="Falta configurar BolsaTech: " +
                                        "; ".join(config.problemas_bolsatech()))
     try:
-        resumen = await asyncio.to_thread(bolsatech.corrida, not solo_ver)
+        desde_fecha = _fecha_form(desde, "desde")
+        hasta_fecha = _fecha_form(hasta, "hasta", fin_del_dia=True)
+    except ValueError as e:
+        return _pagina_bolsatech(request, usuario, 400, error=str(e))
+    try:
+        resumen = await asyncio.to_thread(bolsatech.corrida, not solo_ver,
+                                          desde_fecha, hasta_fecha)
     except bolsatech.ErrorBolsaTech as e:
         return _pagina_bolsatech(request, usuario, 400, error=str(e))
     except oracle.ErrorOracle as e:
