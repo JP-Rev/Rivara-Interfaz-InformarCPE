@@ -564,6 +564,76 @@ estados se traducen así:
 
 Lo que en la app ya quedó resuelto no se pisa con el CSV: manda lo más nuevo.
 
+### La corrida por fechas (lo que hacía la tarea programada)
+
+`cpe_bolsatech.py` corría con el Programador de tareas de Windows: buscaba en
+el ERP los ingresos de soja de un rango de fechas y los informaba, sin que
+nadie cargara CTG. Eso está en el botón **Correr ahora** de `/bolsatech` y en
+una tarea que la app corre sola.
+
+**No hace falta `cron` ni el Programador de tareas**: el ciclo vive dentro de la
+app, como el que avisa los vencimientos de certificados. Un proceso menos que
+puede quedar apagado sin que nadie se entere.
+
+Viene **apagada**, a propósito: es la única parte de la app que escribe en un
+sistema externo sin que nadie mire. Para encenderla, en el `.env`:
+
+```ini
+BOLSATECH_AUTOMATICO=true
+BOLSATECH_CADA_HORAS=6
+BOLSATECH_FECHA_INICIAL=2026-01-01
+BOLSATECH_SOLAPAMIENTO_MINUTOS=5
+BOLSATECH_LIMITE=200
+```
+
+Y reiniciar el contenedor (`docker compose up -d`). Al terminar cada corrida
+manda el resumen por mail, igual que el script.
+
+**Desde cuándo busca.** La primera vez, desde `BOLSATECH_FECHA_INICIAL`.
+Después, desde donde quedó, que la app se guarda en
+`bolsatech/ultima_corrida.txt`. A ese desde se le restan
+`BOLSATECH_SOLAPAMIENTO_MINUTOS`, para no perder un ingreso que entró justo
+mientras corría la búsqueda anterior; informar de más no duplica nada porque
+cada CPE se informa una sola vez.
+
+**La fecha de corte solo avanza si salió todo bien.** Si alguna falló, o si
+quedaron CPE afuera de `BOLSATECH_LIMITE`, el corte no se mueve y la corrida
+siguiente vuelve a tomar ese período en vez de saltearlo. Es al revés de lo
+cómodo a propósito: preferir reintentar antes que perder una CPE.
+
+El botón **Correr ahora** hace lo mismo a mano. Sin tildar la casilla solo
+muestra qué haría, sin enviar nada.
+
+### Confirmar los trackId de los logs viejos
+
+Los scripts corrieron meses sin `BOLSATECH_TRACK_URL`, así que cada alta quedó
+con su `trackId` sin confirmar y lo único que queda de eso son los `.log`. Para
+confirmarlos de una vez hay una herramienta aparte, que lee esos logs:
+
+```bash
+# 1. Dejar los .log donde el contenedor los vea
+sudo mkdir -p /storage/informarcpe/logs
+sudo cp ejecuciones.log ejecuciones_desde_csv.log /storage/informarcpe/logs/
+
+# 2. Ver qué haría, sin enviar nada
+docker compose exec informarcpe python -m herramientas.confirmar_desde_log \
+    /data/logs/ejecuciones.log /data/logs/ejecuciones_desde_csv.log
+
+# 3. Confirmar de verdad
+docker compose exec informarcpe python -m herramientas.confirmar_desde_log \
+    --confirmar /data/logs/ejecuciones.log /data/logs/ejecuciones_desde_csv.log
+```
+
+Confirmar un `trackId` **no da de alta ninguna CPE**: solo acusa recibo, así
+que correrlo de más no duplica nada. El avance se guarda en
+`bolsatech/confirmacion_log.json` después de cada `trackId`, así que si se corta
+se puede volver a correr y retoma donde quedó, sin repetir lo que ya salió bien.
+
+Con qué cuenta firmar sale de las líneas `CREDENCIALES` del log; para los CTG
+que el log no aclara se busca el `id_muestra` en el ERP y, si tampoco está, se
+prueban las dos cuentas. Con `--limite N` se hace de a poco y con `--sin-oracle`
+no se consulta el ERP.
+
 ### Qué se informa de cada CPE
 
 | Campo de BolsaTech | De dónde sale |

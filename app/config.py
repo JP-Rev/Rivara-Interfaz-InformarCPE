@@ -166,6 +166,18 @@ class Config:
     # El primero que no tiene número ONCCA es el que se usa por omisión.
     bolsatech_plantas: str = os.getenv(
         "BOLSATECH_PLANTAS", "525045:1170:7790:7790,*:252:5150:5140").strip()
+    # Corrida automática: busca por fecha e informa sola, como hacía la tarea
+    # programada. Apagada por omisión: informar escribe en un sistema externo,
+    # así que que corra sola tiene que ser una decisión, no un descuido.
+    bolsatech_automatico: bool = _bool("BOLSATECH_AUTOMATICO", False)
+    bolsatech_cada_horas: int = int(os.getenv("BOLSATECH_CADA_HORAS", "6"))
+    # Desde cuándo buscar la primera vez (después manda la última corrida).
+    bolsatech_fecha_inicial: str = os.getenv("BOLSATECH_FECHA_INICIAL", "").strip()
+    # Se vuelve un poco para atrás, por si algo se cargó con la fecha corrida.
+    bolsatech_solapamiento: int = int(os.getenv("BOLSATECH_SOLAPAMIENTO_MINUTOS", "5"))
+    # Tope por corrida, para que un error no se multiplique por mil.
+    bolsatech_limite: int = int(os.getenv("BOLSATECH_LIMITE", "200"))
+
     # Quién recibe la mercadería, por planta: ONCCA:CUIT:razón social.
     # '*' es la sociedad por omisión.
     bolsatech_destinatarios: str = os.getenv(

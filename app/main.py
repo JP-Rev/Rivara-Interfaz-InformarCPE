@@ -85,9 +85,13 @@ async def ciclo_de_vida(_: FastAPI):
     else:
         log.info("Configuracion completa (%s, CUIT %s)", config.entorno, ", ".join(config.cuits))
     purgar_todo()
-    tarea = asyncio.create_task(_vigilar_certificados())
+    tareas = [asyncio.create_task(_vigilar_certificados())]
+    if config.bolsatech_automatico:
+        log.info("BolsaTech automático encendido: cada %s horas", config.bolsatech_cada_horas)
+        tareas.append(asyncio.create_task(_informar_bolsatech_solo()))
     yield
-    tarea.cancel()
+    for tarea in tareas:
+        tarea.cancel()
 
 
 async def _vigilar_certificados() -> None:
@@ -104,6 +108,39 @@ async def _vigilar_certificados() -> None:
         except Exception:  # un error aca no puede tirar abajo la app
             log.exception("Fallo el chequeo de vencimiento de certificados")
         await asyncio.sleep(max(config.cert_chequeo_horas, 1) * 3600)
+
+
+async def _informar_bolsatech_solo() -> None:
+    """La tarea programada que antes corría cpe_bolsatech.py.
+
+    Solo arranca con BOLSATECH_AUTOMATICO=true: esto informa a un sistema
+    externo sin que nadie mire, así que tiene que ser una decisión explícita.
+    """
+    # Un rato después de arrancar, para no pegarle a Oracle mientras levanta.
+    await asyncio.sleep(60)
+    while True:
+        try:
+            resumen = await asyncio.to_thread(bolsatech.corrida)
+            informadas = sum(1 for r in resumen["resultados"]
+                             if r["estado"] == bolsatech.INFORMADA)
+            log.info("Corrida de BolsaTech: %s encontradas, %s informadas, corte %s",
+                     resumen["encontradas"], informadas,
+                     "avanzó" if resumen["avanzo"] else "sin cambios")
+            if resumen["resultados"] or resumen["errores_datos"]:
+                await asyncio.to_thread(_avisar_corrida, resumen)
+        except Exception:  # un error acá no puede tirar abajo la app
+            log.exception("Falló la corrida automática de BolsaTech")
+        await asyncio.sleep(max(config.bolsatech_cada_horas, 1) * 3600)
+
+
+def _avisar_corrida(resumen: dict) -> None:
+    if problemas_correo():
+        return
+    asunto, html = bolsatech.resumen_a_texto(resumen)
+    try:
+        enviar_mail(asunto, re.sub(r"<[^>]+>", " ", html), html)
+    except ErrorCorreo as error:
+        log.warning("No se pudo enviar el resumen de BolsaTech: %s", error)
 
 
 app = FastAPI(title="Informar CPE a Visec", lifespan=ciclo_de_vida)
@@ -875,9 +912,19 @@ def _pagina_bolsatech(request: Request, usuario: dict, status_code: int = 200, *
                   problemas_bolsatech=config.problemas_bolsatech(),
                   prefijos=PREFIJOS_MUESTRA,
                   informadas=len(bolsatech.informadas()),
+                  automatico=config.bolsatech_automatico,
+                  cada_horas=config.bolsatech_cada_horas,
+                  desde_cuando=_desde_cuando_seguro(),
                   **extra),
         status_code=status_code,
     )
+
+
+def _desde_cuando_seguro():
+    try:
+        return bolsatech.desde_cuando()
+    except bolsatech.ErrorBolsaTech:
+        return None
 
 
 @app.get("/bolsatech", response_class=HTMLResponse)
@@ -987,6 +1034,37 @@ async def informar_bolsatech(request: Request, tanda: str = Form(""),
     return plantillas.TemplateResponse(
         request, "bolsatech_resultado.html",
         _contexto(request, usuario, seccion="bolsatech", resultados=resultados,
+                  INFORMADA=bolsatech.INFORMADA, YA_ESTABA=bolsatech.YA_ESTABA,
+                  SIN_CONFIRMAR=bolsatech.SIN_CONFIRMAR, ERROR=bolsatech.ERROR),
+    )
+
+
+@app.post("/bolsatech/corrida", response_class=HTMLResponse)
+async def correr_bolsatech(request: Request, confirmo: str = Form("")):
+    """Corre ahora la búsqueda por fechas, sin esperar al automático."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    solo_ver = confirmo != "si"
+    if not solo_ver and not config.bolsatech_listo:
+        return _pagina_bolsatech(request, usuario, 400,
+                                 error="Falta configurar BolsaTech: " +
+                                       "; ".join(config.problemas_bolsatech()))
+    try:
+        resumen = await asyncio.to_thread(bolsatech.corrida, not solo_ver)
+    except bolsatech.ErrorBolsaTech as e:
+        return _pagina_bolsatech(request, usuario, 400, error=str(e))
+    except oracle.ErrorOracle as e:
+        return _pagina_bolsatech(request, usuario, 400, error=str(e))
+    except Exception as e:
+        log.exception("Falló la corrida de BolsaTech")
+        return _pagina_bolsatech(request, usuario, 400, error=f"Falló la corrida: {e}")
+    if not solo_ver:
+        log.info("Usuario %s corrió la búsqueda por fechas de BolsaTech",
+                 usuario.get("email") or usuario.get("name"))
+    return plantillas.TemplateResponse(
+        request, "bolsatech_corrida.html",
+        _contexto(request, usuario, seccion="bolsatech", r=resumen, solo_ver=solo_ver,
                   INFORMADA=bolsatech.INFORMADA, YA_ESTABA=bolsatech.YA_ESTABA,
                   SIN_CONFIRMAR=bolsatech.SIN_CONFIRMAR, ERROR=bolsatech.ERROR),
     )

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block titulo %}Corrida por fechas{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>{% if solo_ver %}Qué hay para informar{% else %}Resultado de la corrida{% endif %}</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/bolsatech">Volver</a>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+{% set informadas = r.resultados | selectattr('estado', 'equalto', INFORMADA) | list %}
+{% set existentes = r.resultados | selectattr('estado', 'equalto', YA_ESTABA) | list %}
+{% set sin_conf = r.resultados | selectattr('estado', 'equalto', SIN_CONFIRMAR) | list %}
+{% set fallidas = r.resultados | selectattr('estado', 'equalto', ERROR) | list %}
+
+<div class="rv-card ic-tarjeta">
+  <p class="ic-ayuda">
+    Período buscado: <strong>{{ r.desde.strftime('%d/%m/%Y %H:%M') }}</strong> a
+    <strong>{{ r.hasta.strftime('%d/%m/%Y %H:%M') }}</strong>
+    (el desde sale de {{ r.origen_fecha }}, menos el solapamiento).
+  </p>
+
+  {% if solo_ver %}
+    <div class="ic-resumen">
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ r.encontradas }}</span>
+        <span class="ic-resumen-etiqueta">ingresos en el período</span>
+      </div>
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ r.pendientes | length }}</span>
+        <span class="ic-resumen-etiqueta">a informar</span>
+      </div>
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ r.con_error }}</span>
+        <span class="ic-resumen-etiqueta">con datos faltantes</span>
+      </div>
+    </div>
+    <p class="rv-nota rv-nota--info">
+      No se envió nada: esto es solo la vista previa. Para informarlas, volvé y
+      marcá la confirmación antes de correr.
+    </p>
+  {% else %}
+    <div class="ic-resumen">
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ informadas | length }}</span>
+        <span class="ic-resumen-etiqueta">informadas</span>
+      </div>
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ existentes | length }}</span>
+        <span class="ic-resumen-etiqueta">ya estaban</span>
+      </div>
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ sin_conf | length }}</span>
+        <span class="ic-resumen-etiqueta">sin confirmar</span>
+      </div>
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ fallidas | length }}</span>
+        <span class="ic-resumen-etiqueta">con error</span>
+      </div>
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ r.con_error }}</span>
+        <span class="ic-resumen-etiqueta">con datos faltantes</span>
+      </div>
+    </div>
+
+    {% if r.avanzo %}
+      <p class="rv-nota rv-nota--ok">
+        La fecha de corte avanzó hasta {{ r.hasta.strftime('%d/%m/%Y %H:%M') }}:
+        la próxima corrida arranca desde ahí.
+      </p>
+    {% else %}
+      <p class="rv-nota rv-nota--info">
+        La fecha de corte <strong>no avanzó</strong>
+        {% if r.incompleta %}
+          porque quedaron CPE afuera del límite de la corrida.
+        {% else %}
+          porque algo quedó sin informar bien.
+        {% endif %}
+        La próxima corrida vuelve a tomar este mismo período, así no se saltea nada.
+      </p>
+    {% endif %}
+    {% if sin_conf %}
+      <p class="rv-nota rv-nota--info">
+        Las «sin confirmar» tienen trackId: se pueden terminar desde
+        <a href="/bolsatech/pendientes">Pendientes de confirmar</a>.
+      </p>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if solo_ver and r.pendientes %}
+<div class="rv-card ic-tarjeta">
+  <h3>CTG que se van a informar</h3>
+  <p class="ic-ayuda">{{ r.pendientes | length }} CTG, en este orden.</p>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th></tr></thead>
+      <tbody>
+        {% for ctg in r.pendientes %}<tr><td class="rv-num">{{ ctg }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if r.resultados %}
+<div class="rv-card ic-tarjeta">
+  <h3>Detalle</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Estado</th><th>Track ID</th><th>Detalle</th></tr></thead>
+      <tbody>
+        {% for x in r.resultados %}
+        <tr>
+          <td class="rv-num">{{ x.ctg }}</td>
+          <td>{{ x.estado }}</td>
+          <td class="rv-num">{{ x.track_id or '—' }}</td>
+          <td>{{ x.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if r.errores_datos %}
+<div class="rv-card ic-tarjeta">
+  <h3>Con datos faltantes</h3>
+  <p class="ic-ayuda">
+    Estas no se informan hasta que se corrija el dato en el ERP. Si hace falta,
+    se pueden informar a mano desde la pantalla de CTG.
+  </p>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th>CTG</th><th>Qué falta</th></tr></thead>
+      <tbody>
+        {% for x in r.errores_datos %}
+        <tr><td class="rv-num">{{ x.ctg }}</td><td>{{ x.motivo }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

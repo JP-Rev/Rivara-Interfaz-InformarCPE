@@ -25,7 +25,7 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -270,10 +270,10 @@ def xml_registro(cpe: Cpe) -> str:
             "</cartasDePorte></t:registrarCartasDePorte></s:Body></s:Envelope>")
 
 
-def xml_confirmacion(cpe: Cpe, track_id: str) -> str:
+def xml_confirmacion(cpe: Cpe, track_id: str, cuenta: str = "") -> str:
     return (f'<?xml version="1.0" encoding="UTF-8"?>'
             f'<s:Envelope xmlns:s="{SOAP11}" xmlns:t="{NS_TRACK}" xmlns:wsse="{NS_WSSE}">'
-            f"<s:Header>{_seguridad(cpe.cuenta, 's')}</s:Header><s:Body>"
+            f"<s:Header>{_seguridad(cuenta or cpe.cuenta, 's')}</s:Header><s:Body>"
             "<t:confirmarRecepcionDeTrackId><confirmacionesDeRecepcionDeTrackId>"
             f"<confirmacionDeRecepcionDeTrackId><trackId>{escape(track_id)}</trackId>"
             "</confirmacionDeRecepcionDeTrackId>"
@@ -378,10 +378,15 @@ def registrar(cpe: Cpe) -> dict:
     return {"track_id": _valor(raiz, "trackId"), "errores": errores}
 
 
-def confirmar(cpe: Cpe, track_id: str) -> bool:
+def confirmar(cpe: Cpe, track_id: str, cuenta: str = "") -> bool:
+    """Acusa recibo del trackId. No da de alta ninguna CPE.
+
+    `cuenta` fuerza con qué credenciales se firma; vacío usa la que sale del
+    prefijo del id de muestra, que es lo normal.
+    """
     if not config.bolsatech_url_track:
         return False
-    xml = xml_confirmacion(cpe, track_id)
+    xml = xml_confirmacion(cpe, track_id, cuenta)
     _guardar_xml("confirmacion", cpe.ctg, xml)
     respuesta = _enviar(config.bolsatech_url_track, xml,
                         "confirmarRecepcionDeTrackId", False)
@@ -608,3 +613,118 @@ def confirmar_pendiente(ctg: str) -> tuple[str, str]:
     detalle = "BolsaTech no devolvió ese trackId entre los confirmados"
     anotar(cpe, SIN_CONFIRMAR, d["track_id"], detalle)
     return SIN_CONFIRMAR, detalle
+
+
+# ---------------------------------------------------------------------------
+# La corrida por fechas, que es lo que hacía la tarea programada
+# ---------------------------------------------------------------------------
+
+ULTIMA_CORRIDA = BOLSATECH_DIR / "ultima_corrida.txt"
+FORMATO_CORRIDA = "%Y-%m-%d %H:%M:%S"
+
+
+def desde_cuando() -> tuple[datetime, str]:
+    """Desde qué momento buscar, y de dónde salió esa fecha."""
+    if ULTIMA_CORRIDA.is_file():
+        texto = ULTIMA_CORRIDA.read_text(encoding="utf-8").strip()
+        try:
+            return datetime.strptime(texto, FORMATO_CORRIDA), "la última corrida"
+        except ValueError:
+            log.warning("ultima_corrida.txt ilegible (%r); se usa la fecha inicial", texto)
+    inicial = config.bolsatech_fecha_inicial
+    if not inicial:
+        raise ErrorBolsaTech(
+            "No hay desde cuándo buscar: poné BOLSATECH_FECHA_INICIAL en el .env "
+            "(formato AAAA-MM-DD) para la primera corrida.")
+    try:
+        return datetime.strptime(inicial, "%Y-%m-%d"), "BOLSATECH_FECHA_INICIAL"
+    except ValueError as error:
+        raise ErrorBolsaTech("BOLSATECH_FECHA_INICIAL tiene que ser AAAA-MM-DD") from error
+
+
+def _guardar_corrida(hasta: datetime) -> None:
+    BOLSATECH_DIR.mkdir(parents=True, exist_ok=True)
+    temporal = ULTIMA_CORRIDA.with_suffix(".tmp")
+    temporal.write_text(hasta.strftime(FORMATO_CORRIDA), encoding="utf-8")
+    temporal.replace(ULTIMA_CORRIDA)
+
+
+def corrida(enviar_de_verdad: bool = True) -> dict:
+    """Busca por fecha lo que falta informar y lo informa.
+
+    La fecha de corte solo avanza si salió todo bien: si algo falló, la próxima
+    corrida vuelve a tomar ese período en vez de saltearlo.
+    """
+    from . import oracle
+
+    desde, origen = desde_cuando()
+    desde -= timedelta(minutes=max(config.bolsatech_solapamiento, 0))
+    hasta = datetime.now().replace(microsecond=0)
+    if desde >= hasta:
+        raise ErrorBolsaTech("La fecha desde quedó igual o posterior a la de corte.")
+
+    filas = oracle.buscar_bolsatech(desde=desde, hasta=hasta,
+                                    especies=config.bolsatech_especies)
+    ya = informadas()
+    todas = [armar(f) for f in filas]
+    pendientes_ = [c for c in todas if c.ok and c.ctg not in ya]
+    con_error = [c for c in todas if not c.ok and c.ctg not in ya]
+
+    limite = max(config.bolsatech_limite, 1)
+    incompleta = len(pendientes_) > limite
+    resumen = {
+        "desde": desde, "hasta": hasta, "origen_fecha": origen,
+        "encontradas": len(todas), "con_error": len(con_error),
+        "resultados": [], "incompleta": incompleta, "avanzo": False,
+        "errores_datos": [{"ctg": c.ctg, "motivo": "; ".join(c.errores)} for c in con_error],
+    }
+    if not enviar_de_verdad:
+        resumen["pendientes"] = [c.ctg for c in pendientes_[:limite]]
+        return resumen
+
+    hubo_problemas = bool(con_error)
+    for cpe in pendientes_[:limite]:
+        try:
+            situacion, track_id, detalle = informar(cpe)
+        except Exception as error:   # una CPE que falla no frena la corrida
+            log.exception("Error informando el CTG %s", cpe.ctg)
+            anotar(cpe, ERROR, detalle=str(error))
+            situacion, track_id, detalle = ERROR, "", str(error)
+        if situacion not in FINALES:
+            hubo_problemas = True
+        resumen["resultados"].append({"ctg": cpe.ctg, "estado": situacion,
+                                      "track_id": track_id, "detalle": detalle})
+
+    if not incompleta and not hubo_problemas:
+        _guardar_corrida(hasta)
+        resumen["avanzo"] = True
+    else:
+        log.info("La fecha de corte no avanza: %s",
+                 "quedaron CPE fuera del límite" if incompleta else "hubo errores")
+    return resumen
+
+
+def resumen_a_texto(r: dict) -> tuple[str, str]:
+    """(asunto, cuerpo HTML) para el mail de la corrida automática."""
+    cuenta = lambda e: sum(1 for x in r["resultados"] if x["estado"] == e)
+    informadas_ = cuenta(INFORMADA)
+    asunto = f"BolsaTech: {informadas_} CPE informadas — {datetime.now():%d/%m/%Y %H:%M}"
+    filas = "".join(
+        f"<tr><td>{escape(x['ctg'])}</td><td>{escape(x['estado'])}</td>"
+        f"<td>{escape(x['track_id'] or '')}</td><td>{escape(x['detalle'] or '')}</td></tr>"
+        for x in r["resultados"])
+    errores = "".join(
+        f"<tr><td>{escape(x['ctg'])}</td><td colspan=\"3\">{escape(x['motivo'])}</td></tr>"
+        for x in r["errores_datos"])
+    html = f"""<html><body style="font-family: Arial, sans-serif; color: #333">
+<h2>Informe de CPE a BolsaTech</h2>
+<p><b>Período:</b> {r['desde']:%d/%m/%Y %H:%M} a {r['hasta']:%d/%m/%Y %H:%M}
+   (desde {escape(r['origen_fecha'])})<br>
+<b>Informadas:</b> {informadas_} &nbsp; <b>Ya estaban:</b> {cuenta(YA_ESTABA)} &nbsp;
+<b>Sin confirmar:</b> {cuenta(SIN_CONFIRMAR)} &nbsp; <b>Con error:</b> {cuenta(ERROR)}<br>
+<b>Con datos faltantes:</b> {r['con_error']}<br>
+<b>Fecha de corte:</b> {'avanzó' if r['avanzo'] else 'sin cambios, se reintenta'}</p>
+<table border="1" cellpadding="6" style="border-collapse: collapse">
+<tr><th>CTG</th><th>Estado</th><th>Track ID</th><th>Detalle</th></tr>
+{filas}{errores}</table></body></html>"""
+    return asunto, html

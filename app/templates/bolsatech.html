@@ -59,6 +59,44 @@
   </div>
 </form>
 
+<form class="rv-card ic-tarjeta" method="post" action="/bolsatech/corrida">
+  <h3>Buscar por fechas, sin cargar CTG</h3>
+  <p class="ic-ayuda">
+    Lo que antes hacía la tarea programada: busca en el ERP los ingresos de soja
+    desde la última corrida hasta ahora y los informa. Cada CPE se informa una
+    sola vez, así que correrlo de más no duplica nada.
+  </p>
+
+  <p class="rv-meta">
+    {% if automatico %}
+      La corrida automática está <strong>encendida</strong>: se repite cada
+      {{ cada_horas }} horas y avisa por mail.
+    {% else %}
+      La corrida automática está <strong>apagada</strong>
+      (<code>BOLSATECH_AUTOMATICO=false</code>): por ahora solo corre cuando la
+      largás desde acá.
+    {% endif %}
+  </p>
+  <p class="rv-meta">
+    {% if desde_cuando %}
+      Próxima búsqueda desde <strong>{{ desde_cuando[0].strftime('%d/%m/%Y %H:%M') }}</strong>
+      (según {{ desde_cuando[1] }}).
+    {% else %}
+      Todavía no hay desde cuándo buscar: falta <code>BOLSATECH_FECHA_INICIAL</code>
+      en el <code>.env</code>.
+    {% endif %}
+  </p>
+
+  <label class="ic-confirmar">
+    <input type="checkbox" name="confirmo" value="si">
+    <span>Informar de verdad lo que encuentre. Sin marcar, solo muestra qué haría.</span>
+  </label>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit">Correr ahora</button>
+  </div>
+</form>
+
 <div class="rv-card ic-tarjeta">
   <h3>Qué hace esta pantalla</h3>
   <ol class="ic-lista">
