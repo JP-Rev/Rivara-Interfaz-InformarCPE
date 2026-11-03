@@ -652,9 +652,28 @@ no se consulta el ERP.
 | `fechaHoraConfirmacion` | `IPL_FECHA_HORA` |
 
 Los scripts mandaban `codigoEspecie` fijo en `23`. Acá sale de
-`ESP_CODIGO_SAGPYA`, que para las cinco especies de soja del ERP (08, 14, 20,
-24, 38) debería dar justamente 23; si el ERP no lo trae se usa
-`BOLSATECH_ESPECIE_DEFECTO`.
+`ESP_CODIGO_SAGPYA`. Verificado contra `SYSADMIN.ESPECIES`: las cinco especies
+de soja del ERP dan todas 23.
+
+| `ESP_ESPECIE` | `ESP_DESCRIPCION` | `ESP_CODIGO_SAGPYA` |
+|---|---|---|
+| 08 | Soja | 23 |
+| 14 | Soja Orgánica | 23 |
+| 20 | Soja  Buffer | 23 |
+| 24 | Soja ESP | 23 |
+| 38 | Soja EUDR | 23 |
+
+`BOLSATECH_ESPECIE_DEFECTO` queda como red de seguridad para cuando el ERP no
+lo trae: si mañana cargan una sexta variante de soja y se olvidan ese campo, la
+CPE se informa igual en vez de quedar afuera.
+
+Ojo que `Soja  Buffer` tiene dos espacios en el ERP y `Soja Orgánica` lleva
+tilde. Para BolsaTech no importa, porque el cruce es por `ESP_ESPECIE`. Para
+las equivalencias de Albor tampoco: ahí el cruce por nombre pasa por
+`_normalizar`, que colapsa los espacios y saca las tildes. Lo que sí conviene
+es **no corregirlos en el ERP**: la clave guardada en `equivalencias.json` es
+el nombre crudo, así que cambiarlo hace que esa especie se pregunte una vez
+más.
 
 Una CPE a la que le falte un dato obligatorio **no se informa**: aparece en la
 pantalla con el motivo, para corregirla en el ERP.
