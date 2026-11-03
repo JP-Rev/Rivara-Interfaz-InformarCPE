@@ -77,10 +77,35 @@
       largás desde acá.
     {% endif %}
   </p>
+
+  {% if automatico %}
+    <p class="rv-meta">
+      {% if ultima_automatica %}
+        Corrió sola por última vez el
+        <strong>{{ ultima_automatica.momento.strftime('%d/%m/%Y %H:%M') }}</strong>
+        {%- if ultima_automatica.error %}
+          y <strong>falló</strong>: {{ ultima_automatica.error }}
+        {%- else %}
+          : {{ ultima_automatica.informadas }} informadas
+          de {{ ultima_automatica.encontradas }} encontradas
+          {%- if ultima_automatica.fallaron %}, {{ ultima_automatica.fallaron }} sin terminar{% endif -%}
+          {%- if ultima_automatica.incompleta %}, y quedaron CPE afuera del límite{% endif -%}
+          .
+        {%- endif %}
+        La próxima, cerca de las
+        <strong>{{ proxima_automatica.strftime('%d/%m/%Y %H:%M') }}</strong>.
+      {% else %}
+        Todavía no corrió sola ninguna vez. La primera sale aproximadamente un
+        minuto después de arrancar el contenedor, y después cada
+        {{ cada_horas }} horas.
+      {% endif %}
+    </p>
+  {% endif %}
+
   <p class="rv-meta">
     {% if desde_cuando %}
-      Próxima búsqueda desde <strong>{{ desde_cuando[0].strftime('%d/%m/%Y %H:%M') }}</strong>
-      (según {{ desde_cuando[1] }}).
+      Busca desde <strong>{{ desde_cuando[0].strftime('%d/%m/%Y %H:%M') }}</strong>
+      (según {{ desde_cuando[1] }}), hasta ahora.
     {% else %}
       Todavía no hay desde cuándo buscar: falta <code>BOLSATECH_FECHA_INICIAL</code>
       en el <code>.env</code>.

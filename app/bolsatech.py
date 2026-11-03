@@ -623,7 +623,46 @@ def confirmar_pendiente(ctg: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 ULTIMA_CORRIDA = BOLSATECH_DIR / "ultima_corrida.txt"
+ULTIMA_AUTOMATICA = BOLSATECH_DIR / "ultima_automatica.json"
 FORMATO_CORRIDA = "%Y-%m-%d %H:%M:%S"
+
+
+def anotar_automatica(resumen: dict | None = None, error: str = "") -> None:
+    """Deja constancia de cuándo corrió sola y cómo le fue, para la pantalla."""
+    datos = {"cuando": datetime.now().strftime(FORMATO_CORRIDA), "error": error}
+    if resumen:
+        datos.update({
+            "encontradas": resumen.get("encontradas", 0),
+            "informadas": sum(1 for r in resumen.get("resultados", [])
+                              if r.get("estado") == INFORMADA),
+            "ya_estaban": sum(1 for r in resumen.get("resultados", [])
+                              if r.get("estado") == YA_ESTABA),
+            "fallaron": sum(1 for r in resumen.get("resultados", [])
+                            if r.get("estado") not in FINALES),
+            "con_error": resumen.get("con_error", 0),
+            "incompleta": resumen.get("incompleta", False),
+        })
+    try:
+        BOLSATECH_DIR.mkdir(parents=True, exist_ok=True)
+        temporal = ULTIMA_AUTOMATICA.with_suffix(".tmp")
+        temporal.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+        temporal.replace(ULTIMA_AUTOMATICA)
+    except OSError as error_io:
+        log.warning("No se pudo anotar la corrida automática: %s", error_io)
+
+
+def ultima_automatica() -> dict | None:
+    if not ULTIMA_AUTOMATICA.is_file():
+        return None
+    try:
+        datos = json.loads(ULTIMA_AUTOMATICA.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    try:
+        datos["momento"] = datetime.strptime(datos["cuando"], FORMATO_CORRIDA)
+    except (KeyError, ValueError):
+        return None
+    return datos
 
 
 def desde_cuando() -> tuple[datetime, str]:

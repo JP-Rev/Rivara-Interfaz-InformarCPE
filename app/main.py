@@ -17,7 +17,7 @@ import time
 import unicodedata
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import jwt
@@ -126,10 +126,12 @@ async def _informar_bolsatech_solo() -> None:
             log.info("Corrida de BolsaTech: %s encontradas, %s informadas, corte %s",
                      resumen["encontradas"], informadas,
                      "avanzó" if resumen["avanzo"] else "sin cambios")
+            bolsatech.anotar_automatica(resumen)
             if resumen["resultados"] or resumen["errores_datos"]:
                 await asyncio.to_thread(_avisar_corrida, resumen)
-        except Exception:  # un error acá no puede tirar abajo la app
+        except Exception as error:  # un error acá no puede tirar abajo la app
             log.exception("Falló la corrida automática de BolsaTech")
+            bolsatech.anotar_automatica(error=str(error))
         await asyncio.sleep(max(config.bolsatech_cada_horas, 1) * 3600)
 
 
@@ -904,7 +906,16 @@ PREFIJOS_MUESTRA = [
 ]
 
 
+def _proxima_automatica(ultima: dict | None):
+    """Cuándo volvería a correr sola. Aproximado: el ciclo duerme desde que
+    terminó la anterior, así que una corrida larga la corre un poco."""
+    if not ultima:
+        return None
+    return ultima["momento"] + timedelta(hours=max(config.bolsatech_cada_horas, 1))
+
+
 def _pagina_bolsatech(request: Request, usuario: dict, status_code: int = 200, **extra):
+    ultima_auto = bolsatech.ultima_automatica()
     return plantillas.TemplateResponse(
         request, "bolsatech.html",
         _contexto(request, usuario, seccion="bolsatech",
@@ -915,6 +926,8 @@ def _pagina_bolsatech(request: Request, usuario: dict, status_code: int = 200, *
                   automatico=config.bolsatech_automatico,
                   cada_horas=config.bolsatech_cada_horas,
                   desde_cuando=_desde_cuando_seguro(),
+                  ultima_automatica=ultima_auto,
+                  proxima_automatica=_proxima_automatica(ultima_auto),
                   **extra),
         status_code=status_code,
     )

@@ -586,8 +586,18 @@ BOLSATECH_SOLAPAMIENTO_MINUTOS=5
 BOLSATECH_LIMITE=200
 ```
 
-Y reiniciar el contenedor (`docker compose up -d`). Al terminar cada corrida
-manda el resumen por mail, igual que el script.
+Y reiniciar el contenedor (`docker compose up -d --force-recreate`). Al
+terminar cada corrida manda el resumen por mail, igual que el script.
+
+**La primera corrida sale un minuto después de arrancar el contenedor**, no a
+las `BOLSATECH_CADA_HORAS`. Ese minuto es para no pegarle a Oracle mientras
+levanta. Conviene saberlo: encender el automático y recrear el contenedor
+informa enseguida, no al día siguiente.
+
+La pantalla dice cuándo corrió sola por última vez, cómo le fue y cuándo sería
+la próxima, así que no hace falta leer logs para saber si está andando. Si una
+corrida falla, también queda ahí con el error. Eso sale de
+`bolsatech/ultima_automatica.json`.
 
 **Desde cuándo busca.** La primera vez, desde `BOLSATECH_FECHA_INICIAL`.
 Después, desde donde quedó, que la app se guarda en
