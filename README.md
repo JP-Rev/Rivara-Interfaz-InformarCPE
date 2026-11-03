@@ -633,6 +633,34 @@ Los otros dos métodos que documenta Bolsatech y la app **no** usa: `getCTG`
 (del número de carta de porte al CTG) y `requiereMuestra` (si esa CPE va a
 análisis).
 
+### Volver a informar una CPE que la app ya dio por informada
+
+La app no informa dos veces la misma CPE: lo que quedó como `informada` o
+`ya_estaba` en `estado.json` se saltea para siempre. Eso es lo que se quiere
+casi siempre, salvo cuando **una CPE se anula y hay que volver a cargarla**, o
+cuando se cargó con el participante equivocado.
+
+```bash
+docker compose exec informarcpe python -m herramientas.olvidar_cpe 10130966598
+docker compose exec informarcpe python -m herramientas.olvidar_cpe --confirmar 10130966598
+```
+
+No toca nada en BolsaTech: sólo borra la anotación local para que la próxima
+vez se vuelva a intentar. Si del otro lado la CPE sigue existiendo, el alta
+rebota igual y vuelve a quedar como `ya_estaba` — esa es la red de seguridad
+real, no la anotación.
+
+Antes de cambiar nada deja un respaldo `estado_AAAAMMDD_HHMMSS.json` al lado,
+así volver atrás es copiarlo encima.
+
+**Cada participante ve sólo lo suyo.** `consultarCartasDePorte` devuelve
+únicamente las CPE de la cuenta con la que se consulta, pero el CTG es único
+en todo BolsaTech. Una CPE cargada por otro participante —otra sociedad del
+grupo, otro acopio, el productor— no aparece en la consulta y sin embargo hace
+rebotar el alta con "ya existe una carta de porte con ese CTG". Por eso
+`ya_informada()` no alcanza como única defensa y la de verdad es el rechazo
+del alta.
+
 ### Confirmar los trackId de los logs viejos
 
 Los scripts corrieron meses sin `BOLSATECH_TRACK_URL`, así que cada alta quedó
