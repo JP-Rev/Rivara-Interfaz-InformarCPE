@@ -806,6 +806,12 @@ uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
   y un RUCA 0 Visec lo rechaza. Lo mismo para producto y pesos.
 - **Si falta algo obligatorio, no se manda**: queda *con datos faltantes* y se
   reintenta en cada corrida, por si el dato aparece.
+- **Si viene de un productor, el RENSPA es obligatorio.** El esquema del
+  OpenAPI no lo marca, pero la descripción de `movimientoMercaderiaUP` sí: si
+  la CPE viene de un productor (sin RUCA de origen), cada movimiento es una
+  unidad productiva con su RENSPA. Si viene de un acopio, en cambio, va el CTG
+  asignado. El caso típico es un operario que no cargó el RENSPA en el ingreso:
+  queda con datos faltantes y sale sola en cuanto se corrige en el ERP.
 
 ### El ciclo
 

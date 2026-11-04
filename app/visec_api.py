@@ -285,6 +285,13 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
     faltan = [f"Falta {texto}" for campo, texto in obligatorios.items() if not carta.get(campo)]
     if not movimiento.get("pesoIngresoStockKg"):
         faltan.append("Falta el peso que ingresó a stock")
+    # El esquema no lo marca obligatorio, pero la descripción de
+    # movimientoMercaderiaUP sí: si la CPE viene de un productor (sin RUCA de
+    # origen), cada movimiento es una unidad productiva y va con su RENSPA. Sin
+    # él no hay trazabilidad, que es para lo que existe Visec. Queda en "datos
+    # faltantes", que se reintenta solo: sale en cuanto se cargue en el ERP.
+    if not carta.get("numeroRUCAOrigen") and not movimiento.get("numeroRENSPA"):
+        faltan.append("Falta el RENSPA: viene de un productor y Visec pide la unidad productiva")
     return carta, faltan, fila
 
 
