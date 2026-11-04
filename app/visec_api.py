@@ -45,9 +45,10 @@ RESPUESTAS_DIR = VISEC_API_DIR / "respuestas"
 ULTIMA_AUTOMATICA = VISEC_API_DIR / "ultima_automatica.json"
 FORMATO = "%Y-%m-%d %H:%M:%S"
 
-# Argentina no tiene horario de verano: el desfase es fijo. Va explícito en
-# fechaHoraMovimiento para que del otro lado no haya que adivinar la zona.
-ZONA = "-03:00"
+# fechaHoraMovimiento va SIN zona horaria, en hora argentina. Es lo único que
+# acepta el conversor de Visec: con "-03:00" contesta "Allowed formats:
+# 'yyyy-MM-dd'T'HH:mm:ss', 'yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'" (staging, 04/11/2026).
+FORMATO_FECHA_HORA = "%Y-%m-%dT%H:%M:%S"
 
 RUTA_ALTA = "/ProcesoImportacionJsonCartaPorte"
 RUTA_PROCESO = "/ConsultarProcesoImportacionCartaPorte"
@@ -174,16 +175,20 @@ def _texto_error(datos: Any) -> str:
     if not isinstance(datos, dict):
         return str(datos or "")[:500]
     error = datos.get("error") if isinstance(datos.get("error"), dict) else datos
-    partes = []
-    for clave in ("errorMessage", "details"):
-        if error.get(clave):
-            partes.append(str(error[clave]))
-    for v in error.get("validationErrors") or []:
-        if isinstance(v, dict):
-            campo = v.get("propertyName") or ""
-            mensaje = v.get("errorMessage") or v.get("details") or ""
-            partes.append(f"{campo}: {mensaje}" if campo else mensaje)
-    return " · ".join(p for p in partes if p) or json.dumps(datos, ensure_ascii=False)[:500]
+    # errorMessage es genérico ("Error al convertir JSON."); el motivo de verdad
+    # viene en details o en attempedValue (así, con la errata de ellos). Por
+    # campo se prefiere details, y el genérico solo si no hay otra cosa.
+    partes: list[str] = []
+    por_campo = [v for v in error.get("validationErrors") or [] if isinstance(v, dict)]
+    for v in por_campo:
+        campo = v.get("propertyName") or ""
+        mensaje = v.get("details") or v.get("attempedValue") or v.get("errorMessage") or ""
+        partes.append(f"{campo}: {mensaje}" if campo else str(mensaje))
+    if not por_campo:
+        detalle = error.get("details") or error.get("attempedValue")
+        partes.append(str(detalle or error.get("errorMessage") or ""))
+    texto = " · ".join(str(p) for p in partes if p)
+    return texto or json.dumps(datos, ensure_ascii=False)[:500]
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +245,7 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
     # Las fechas se rearman: en la fila están con el formato de la planilla.
     momento = propios.get("fecha_movimiento") or visec._buscar(cpe, "cabecera.fechaInicioEstado") \
         or visec._buscar(cpe, "cabecera.fechaEmision")
-    fecha_movimiento = visec._fecha(momento, "%Y-%m-%dT%H:%M:%S")
+    fecha_movimiento = visec._fecha(momento, FORMATO_FECHA_HORA)
     fecha_cpe = visec._fecha(visec._buscar(cpe, "cabecera.fechaEmision"), "%Y-%m-%d")
 
     movimiento = _sin_vacios({
@@ -257,7 +262,7 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
         "tipoMovimiento": config.visec_api_tipo_movimiento,
     })
     carta = _sin_vacios({
-        "fechaHoraMovimiento": f"{fecha_movimiento}{ZONA}" if fecha_movimiento else "",
+        "fechaHoraMovimiento": fecha_movimiento,
         "fechaCPE": fecha_cpe,
         "numeroCPE": v["Número CPE"],
         "numeroCTG": v["Número CTG"],

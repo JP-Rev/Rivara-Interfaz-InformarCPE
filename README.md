@@ -855,12 +855,22 @@ va en las cabeceras, así que ahí no queda ningún secreto.
 
 ### Lo que todavía hay que confirmar en staging
 
-El contrato tiene tres puntos que solo una respuesta real aclara:
+Confirmado con la primera respuesta real (04/11/2026):
+
+- **`fechaHoraMovimiento` va sin zona horaria**, en hora argentina:
+  `2025-05-02T13:59:09`. Con `-03:00` el conversor de Visec contesta
+  *"Allowed formats: 'yyyy-MM-dd'T'HH:mm:ss', 'yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'"*.
+- **El motivo de un 400 viene en `details`**, no en `errorMessage`, que es
+  genérico ("Error al convertir JSON."). La pantalla muestra `details`.
+
+Falta confirmar:
 
 1. **`fechaCPE`.** El OpenAPI la describe como un objeto (`year`, `month`,
    `day`...), que es como el generador documenta un `DateOnly` de .NET. En la
    práctica .NET lo manda y lo recibe como texto `AAAA-MM-DD`, que es lo que se
-   envía. Si Visec lo rechaza, el 400 lo va a decir.
+   envía. Si Visec lo rechaza, el 400 lo va a decir. (Con el primer envío no
+   se supo: el conversor corta en el primer error, y `fechaHoraMovimiento` va
+   antes.)
 2. **`numeroCPE`.** Va con el formato del XLSX (`FORMATO_NUMERO_CPE`).
 3. **Los estados del proceso.** La API no documenta qué valores toma
    `codigoEstado` ni el estado de cada detalle. La app da por registrada una CPE
