@@ -890,8 +890,21 @@ arriba) y los estados del proceso:
 Esos ejemplos vienen con las claves en mayúscula (`NumeroCTG`) y el 400 real
 vino en minúscula (`numeroCTG`): la app lee las dos.
 
-Falta confirmar: **`numeroCPE`**, que va con el formato del XLSX
-(`FORMATO_NUMERO_CPE`).
+**Ciclo completo validado en staging el 04/11/2026** con el CTG
+`10123352370`: alta (proceso 18079), seguimiento y lectura del resultado.
+
+- El alta devuelve `numero` e `id` (18079 y 5975). Para consultar el
+  resultado va `numero`.
+- Las respuestas reales vienen en camelCase (`numeroCTG`, `codigoEstado`),
+  no en PascalCase como los ejemplos.
+- Los errores del detalle pueden traer solo `observaciones`, sin `codigoError`.
+- `numeroCPE` con el formato del XLSX (`00004-00007404`) pasa.
+
+Ese primer envío volvió rechazado por un tema de Visec, no de los datos:
+*"El Número RUCA Destino ingresado no se corresponde con una Sucursal
+habilitada en el sistema."* Las sucursales de Rivara en Visec (15125, 21350,
+21349, 406793) figuran *Inhabilitada*, y hasta que Visec las habilite todo lo
+que entre por ellas va a volver así.
 
 ### En Visec: sucursales y unidades productivas
 
