@@ -900,11 +900,20 @@ vino en minúscula (`numeroCTG`): la app lee las dos.
 - Los errores del detalle pueden traer solo `observaciones`, sin `codigoError`.
 - `numeroCPE` con el formato del XLSX (`00004-00007404`) pasa.
 
-Ese primer envío volvió rechazado por un tema de Visec, no de los datos:
+Ese primer envío volvió rechazado por un tema del ambiente, no de los datos:
 *"El Número RUCA Destino ingresado no se corresponde con una Sucursal
-habilitada en el sistema."* Las sucursales de Rivara en Visec (15125, 21350,
-21349, 406793) figuran *Inhabilitada*, y hasta que Visec las habilite todo lo
-que entre por ellas va a volver así.
+habilitada en el sistema."* **En staging** las sucursales de Rivara no están
+habilitadas. En producción sí (consulta de sucursales del 04/11/2026):
+
+| Sucursal | Nombre | En producción |
+|---|---|---|
+| 15125 | Planta Silo Acceso Alberti | Habilitada |
+| 21350 | Planta Alberti | Habilitada |
+| 21349 | Planta PLA | Habilitada |
+| 406793 | Aceitera | **Inhabilitada** |
+
+Y la unidad productiva de esa CPE (`01.082.0.00493/05`, "El Arapey", de La
+Tranquera Verde) está dada de alta en producción, así que allá pasaría.
 
 ### En Visec: sucursales y unidades productivas
 
