@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block titulo %}Corrida de Visec{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>{% if solo_ver %}Qué se mandaría a Visec{% else %}Resultado de la corrida{% endif %}</h2>
+  <a class="rv-btn rv-btn--fantasma" href="/visec-api">Volver</a>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+{% set etiquetas = {
+  'lista': 'lista para mandar', E.ENVIADA: 'enviada, esperando a Visec',
+  E.REGISTRADA: 'registrada', E.RECHAZADA: 'rechazada por Visec',
+  E.ESPERANDO_ARCA: 'esperando a ARCA', E.FALTAN_DATOS: 'faltan datos', E.ERROR: 'error'} %}
+
+<div class="rv-card ic-tarjeta">
+  <p class="ic-ayuda">
+    {% if r.desde %}
+      Período: <strong>{{ r.desde.strftime('%d/%m/%Y %H:%M') }}</strong> a
+      <strong>{{ r.hasta.strftime('%d/%m/%Y %H:%M') }}</strong> ({{ r.origen }}).
+    {% else %}
+      {{ r.origen | capitalize }}.
+    {% endif %}
+    {{ r.encontradas }} ingresos en el ERP, {{ r.ya_resueltas }} ya resueltos de antes.
+    Ambiente: <strong>{{ 'producción' if r.ambiente == 'prd' else 'staging' }}</strong>.
+  </p>
+
+  <div class="ic-resumen">
+    {% for clave, n in r.por_estado.items() %}
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ n }}</span>
+        <span class="ic-resumen-etiqueta">{{ etiquetas.get(clave, clave) }}</span>
+      </div>
+    {% endfor %}
+  </div>
+
+  {% if r.procesos and (r.procesos.values() | sum) %}
+    <p class="rv-meta">
+      De procesos anteriores: {{ r.procesos.get(E.REGISTRADA, 0) }} registradas,
+      {{ r.procesos.get(E.RECHAZADA, 0) }} rechazadas,
+      {{ r.procesos.get(E.ENVIADA, 0) }} todavía en proceso.
+    </p>
+  {% endif %}
+  {% if r.incompleta %}
+    <p class="rv-nota rv-nota--info">
+      Quedaron más CPE que el límite por corrida (<code>VISEC_API_LIMITE</code>):
+      las que faltan van en la próxima.
+    </p>
+  {% endif %}
+  {% if solo_ver %}
+    <p class="rv-nota rv-nota--info">
+      No se mandó nada ni se anotó nada: es la vista previa. Para mandarlas,
+      volvé y marcá la confirmación.
+    </p>
+  {% endif %}
+</div>
+
+{% if r.filas %}
+<div class="rv-card ic-tarjeta">
+  <h3>Detalle</h3>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead>
+        <tr><th>CTG</th><th>Sociedad</th><th>RUCA destino</th><th>RENSPA</th>
+            <th class="rv-num">Kilos a stock</th><th>Estado</th><th>Detalle</th></tr>
+      </thead>
+      <tbody>
+        {% for f in r.filas %}
+        <tr>
+          <td class="rv-num">{{ f.ctg }}</td>
+          <td>{{ f.sociedad or '—' }}</td>
+          <td class="rv-num">{{ f.ruca_destino or '—' }}</td>
+          <td>{{ f.renspa or '—' }}</td>
+          <td class="rv-num">{{ f.kilos or '—' }}</td>
+          <td>{{ etiquetas.get(f.estado, f.estado) }}{% if f.proceso %} · proceso {{ f.proceso }}{% endif %}</td>
+          <td>{{ f.detalle or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% set con_json = r.filas | selectattr('json') | list %}
+{% if solo_ver and con_json %}
+<div class="rv-card ic-tarjeta">
+  <details class="ic-plegable">
+    <summary>Ver el JSON exacto de {{ con_json | length }} CPE</summary>
+    <p class="ic-ayuda">Lo que iría en <code>cartaPorte</code>, tal cual.</p>
+    <pre class="ic-codigo">{{ con_json | map(attribute='json') | list | tojson(indent=1) }}</pre>
+  </details>
+</div>
+{% endif %}
+{% endblock %}

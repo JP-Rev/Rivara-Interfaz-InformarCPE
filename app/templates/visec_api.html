@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block titulo %}Visec por API{% endblock %}
+
+{% block titulo_pagina %}
+<div class="ic-titulo">
+  <h2>Informar a Visec por API</h2>
+  <span class="ic-titulo-acciones">
+    <span class="rv-chip {% if visec_ambiente == 'prd' %}rv-chip--tint{% else %}rv-chip--neutro{% endif %}">
+      {{ 'Producción' if visec_ambiente == 'prd' else 'Staging' }}
+    </span>
+  </span>
+</div>
+{% endblock %}
+
+{% block contenido %}
+
+{% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+{% if ok %}<p class="rv-nota rv-nota--ok">{{ ok }}</p>{% endif %}
+{% if request.query_params.get('reintentar') %}
+  <p class="rv-nota rv-nota--ok">
+    {{ request.query_params.get('reintentar') }} CPE vuelven a la cola: van en la próxima corrida.
+  </p>
+{% endif %}
+
+<div class="rv-card ic-tarjeta">
+  <p class="ic-ayuda">
+    Lee los ingresos del ERP, completa cada CPE con ARCA y la manda a la API de
+    trazabilidad de Visec, sin planilla. Arma los mismos datos que el XLSX de
+    <a href="/">Informar Visec</a>, que sigue funcionando aparte.
+  </p>
+  {% if visec_ambiente != 'prd' %}
+    <p class="rv-nota rv-nota--info">
+      Está apuntando a <strong>staging</strong>: lo que se mande acá es de prueba.
+      Para producción, <code>VISEC_API_AMBIENTE=prd</code> y las credenciales de producción.
+    </p>
+  {% endif %}
+  {% if problemas %}
+    <p class="rv-nota rv-nota--info">
+      Se puede ver qué se mandaría, pero no enviar. Falta en el <code>.env</code>:
+    </p>
+    <ul class="ic-lista ic-lista--compacta">{% for p in problemas %}<li>{{ p }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if conteo %}
+  <div class="ic-resumen">
+    {% for clave, etiqueta in [(E.REGISTRADA, 'registradas'), (E.ENVIADA, 'esperando a Visec'),
+                               (E.RECHAZADA, 'rechazadas'), (E.ESPERANDO_ARCA, 'esperando a ARCA'),
+                               (E.FALTAN_DATOS, 'con datos faltantes'), (E.ERROR, 'con error')] %}
+      {% if conteo.get(clave) %}
+      <div class="ic-resumen-dato">
+        <span class="ic-resumen-numero rv-num">{{ conteo.get(clave) }}</span>
+        <span class="ic-resumen-etiqueta">{{ etiqueta }}</span>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/visec-api/probar" class="ic-acciones">
+    <button class="rv-btn rv-btn--fantasma" type="submit">Probar la conexión</button>
+    <span class="rv-meta">Pide un token a Visec: prueba credenciales y red sin mandar ninguna CPE.</span>
+  </form>
+</div>
+
+<form class="rv-card ic-tarjeta" method="post" action="/visec-api/corrida">
+  <h3>Correr ahora</h3>
+
+  <p class="rv-meta">
+    {% if automatico %}
+      La corrida automática está <strong>encendida</strong>: cada {{ cada_minutos }} minutos.
+      {% if ultima %}
+        Corrió por última vez el <strong>{{ ultima.momento.strftime('%d/%m/%Y %H:%M') }}</strong>
+        {%- if ultima.error %} y <strong>falló</strong>: {{ ultima.error }}{% endif -%}
+        . La próxima, cerca de las <strong>{{ proxima.strftime('%H:%M') }}</strong>.
+      {% else %}
+        Todavía no corrió: la primera sale un minuto y medio después de arrancar el contenedor.
+      {% endif %}
+    {% else %}
+      La corrida automática está <strong>apagada</strong>
+      (<code>VISEC_API_AUTOMATICO=false</code>): solo corre cuando la largás desde acá.
+    {% endif %}
+  </p>
+  {% if periodo %}
+  <p class="rv-meta">
+    Sin fechas mira del <strong>{{ periodo[0].strftime('%d/%m/%Y') }}</strong> hasta ahora
+    ({{ periodo[2] }}), especie {{ especies | join(', ') }}. Lo ya registrado se saltea.
+  </p>
+  {% endif %}
+
+  <label class="rv-campo">
+    <span class="rv-label">CTG puntuales (opcional)</span>
+    <textarea class="rv-input" name="ctgs" rows="3" placeholder="10134580361"></textarea>
+  </label>
+  <p class="ic-ayuda">
+    Para probar con una o dos CPE elegidas. Si ponés CTG, las fechas no se usan.
+  </p>
+
+  <div class="ic-fechas">
+    <label class="rv-campo">
+      <span class="rv-label">Desde</span>
+      <input class="rv-input" type="date" name="desde">
+    </label>
+    <label class="rv-campo">
+      <span class="rv-label">Hasta</span>
+      <input class="rv-input" type="date" name="hasta">
+    </label>
+  </div>
+
+  <label class="ic-confirmar">
+    <input type="checkbox" name="confirmo" value="si">
+    <span>Mandar de verdad a Visec ({{ 'producción' if visec_ambiente == 'prd' else 'staging' }}).
+      Sin marcar, solo muestra qué mandaría.</span>
+  </label>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit">Correr ahora</button>
+  </div>
+</form>
+
+{% if pendientes[E.RECHAZADA] %}
+<form class="rv-card ic-tarjeta" method="post" action="/visec-api/reintentar">
+  <h3>Rechazadas por Visec</h3>
+  <p class="ic-ayuda">
+    No se reintentan solas: si Visec rechazó por un RENSPA o un RUCA que no tiene
+    dado de alta, mandarla de nuevo no lo arregla. Corregilo del lado de Visec,
+    marcala y volvé a ponerla en la cola.
+  </p>
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead><tr><th></th><th>CTG</th><th>Motivo</th><th>Cuándo</th></tr></thead>
+      <tbody>
+        {% for d in pendientes[E.RECHAZADA] %}
+        <tr>
+          <td><input type="checkbox" name="ctg" value="{{ d.ctg }}" aria-label="Reintentar {{ d.ctg }}"></td>
+          <td class="rv-num">{{ d.ctg }}</td>
+          <td>{{ d.detalle or d.estado_visec or '—' }}</td>
+          <td>{{ d.cuando }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit">Volver a poner en la cola</button>
+  </div>
+</form>
+{% endif %}
+
+{% for clave, titulo, ayuda in [
+    (E.ENVIADA, 'Esperando el resultado de Visec', 'Visec las recibió y las está procesando. La próxima corrida pregunta el resultado.'),
+    (E.ESPERANDO_ARCA, 'Esperando a ARCA', 'Todavía no están confirmadas ni descargadas en ARCA, así que los pesos pueden cambiar. Se mandan solas cuando ARCA las confirme.'),
+    (E.FALTAN_DATOS, 'Con datos faltantes', 'Les falta algo obligatorio. Se vuelven a intentar en cada corrida, por si el dato aparece.'),
+    (E.ERROR, 'Con error', 'Algo técnico: red, ARCA o Visec no respondieron. Se reintentan solas.')] %}
+  {% if pendientes[clave] %}
+  <div class="rv-card ic-tarjeta">
+    <details class="ic-plegable">
+      <summary>{{ titulo }} ({{ pendientes[clave] | length }})</summary>
+      <p class="ic-ayuda">{{ ayuda }}</p>
+      <div class="ic-tabla-scroll">
+        <table class="rv-tabla">
+          <thead><tr><th>CTG</th>{% if clave == E.ENVIADA %}<th>Proceso</th>{% endif %}<th>Detalle</th><th>Cuándo</th></tr></thead>
+          <tbody>
+            {% for d in pendientes[clave][:200] %}
+            <tr>
+              <td class="rv-num">{{ d.ctg }}</td>
+              {% if clave == E.ENVIADA %}<td class="rv-num">{{ d.proceso or '—' }}</td>{% endif %}
+              <td>{{ d.detalle or '—' }}</td>
+              <td>{{ d.cuando }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+  {% endif %}
+{% endfor %}
+{% endblock %}

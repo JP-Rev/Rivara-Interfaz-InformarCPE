@@ -18,6 +18,7 @@ import unicodedata
 import uuid
 import zipfile
 from datetime import datetime, timedelta
+from html import escape as html_escape
 from pathlib import Path
 
 import jwt
@@ -30,6 +31,7 @@ from .config import BASE_DIR, config
 from . import albor
 from . import oracle
 from . import bolsatech
+from . import visec_api
 from .planillas import filas as filas_planilla
 from . import certificados
 from .correo import ErrorCorreo, enviar as enviar_mail, problemas_correo
@@ -89,6 +91,10 @@ async def ciclo_de_vida(_: FastAPI):
     if config.bolsatech_automatico:
         log.info("BolsaTech automático encendido: cada %s horas", config.bolsatech_cada_horas)
         tareas.append(asyncio.create_task(_informar_bolsatech_solo()))
+    if config.visec_api_automatico:
+        log.info("Visec por API automático encendido (%s): cada %s minutos",
+                 config.visec_api_ambiente, config.visec_api_cada_minutos)
+        tareas.append(asyncio.create_task(_informar_visec_solo()))
     yield
     for tarea in tareas:
         tarea.cancel()
@@ -133,6 +139,51 @@ async def _informar_bolsatech_solo() -> None:
             log.exception("Falló la corrida automática de BolsaTech")
             bolsatech.anotar_automatica(error=str(error))
         await asyncio.sleep(max(config.bolsatech_cada_horas, 1) * 3600)
+
+
+async def _informar_visec_solo() -> None:
+    """Informa a Visec por API cada VISEC_API_CADA_MINUTOS.
+
+    Primero revisa los procesos que quedaron esperando y después manda lo
+    nuevo. Si una corrida todavía no terminó cuando toca la siguiente, esa se
+    saltea: corrida() no deja que dos se pisen.
+    """
+    await asyncio.sleep(90)  # después de BolsaTech, para no arrancar las dos juntas
+    while True:
+        try:
+            resumen = await asyncio.to_thread(visec_api.corrida, True)
+            visec_api.anotar_automatica(resumen)
+            log.info("Visec API: %s encontradas, %s, procesos %s", resumen["encontradas"],
+                     resumen["por_estado"], resumen["procesos"])
+            rechazadas = (resumen["procesos"].get(visec_api.RECHAZADA, 0)
+                          + resumen["por_estado"].get(visec_api.RECHAZADA, 0))
+            if rechazadas:
+                await asyncio.to_thread(_avisar_rechazos_visec, resumen, rechazadas)
+        except Exception as error:  # un error acá no puede tirar abajo la app
+            log.exception("Falló la corrida automática de Visec por API")
+            visec_api.anotar_automatica(error=str(error))
+        await asyncio.sleep(max(config.visec_api_cada_minutos, 1) * 60)
+
+
+def _avisar_rechazos_visec(resumen: dict, cuantas: int) -> None:
+    """Solo avisa cuando Visec rechaza algo: un mail cada 15 minutos con "todo
+    bien" sería ruido y dejaría de leerse."""
+    if problemas_correo():
+        return
+    rechazadas = [(ctg, d) for ctg, d in visec_api.estado().items()
+                  if d.get("estado") == visec_api.RECHAZADA]
+    filas = "".join(
+        f"<tr><td>{ctg}</td><td>{html_escape(d.get('detalle', ''))}</td></tr>"
+        for ctg, d in rechazadas[-50:])
+    url = f"{config.app_url}/visec-api" if config.app_url else "/visec-api"
+    cuerpo = (f"<p>Visec ({config.visec_api_ambiente}) rechazó {cuantas} CPE en la última corrida. "
+              f"No se reintentan solas: revisalas y reintentalas desde <a href=\"{url}\">{url}</a>.</p>"
+              f"<table border=\"1\" cellpadding=\"6\" style=\"border-collapse: collapse\">"
+              f"<tr><th>CTG</th><th>Motivo</th></tr>{filas}</table>")
+    try:
+        enviar_mail(f"Visec rechazó {cuantas} CPE", re.sub(r"<[^>]+>", " ", cuerpo), cuerpo)
+    except ErrorCorreo as error:
+        log.warning("No se pudo avisar los rechazos de Visec: %s", error)
 
 
 def _avisar_corrida(resumen: dict) -> None:
@@ -1101,6 +1152,111 @@ async def correr_bolsatech(request: Request, confirmo: str = Form(""),
                   INFORMADA=bolsatech.INFORMADA, YA_ESTABA=bolsatech.YA_ESTABA,
                   SIN_CONFIRMAR=bolsatech.SIN_CONFIRMAR, ERROR=bolsatech.ERROR),
     )
+
+
+# ---------------------------------------------------------------------------
+# Visec por API
+# ---------------------------------------------------------------------------
+
+def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, **extra):
+    datos = visec_api.estado()
+    pendientes = {e: [] for e in (visec_api.RECHAZADA, visec_api.ENVIADA, visec_api.FALTAN_DATOS,
+                                  visec_api.ESPERANDO_ARCA, visec_api.ERROR)}
+    for ctg, d in sorted(datos.items(), key=lambda x: x[1].get("cuando", ""), reverse=True):
+        if d.get("estado") in pendientes:
+            pendientes[d["estado"]].append(dict(d, ctg=ctg))
+    ultima = visec_api.ultima_automatica()
+    try:
+        periodo = visec_api.periodo()
+    except visec_api.ErrorVisecApi:
+        periodo = None
+    return plantillas.TemplateResponse(
+        request, "visec_api.html",
+        _contexto(request, usuario, seccion="visec_api",
+                  visec_ambiente=config.visec_api_ambiente,
+                  problemas=config.problemas_visec_api(),
+                  automatico=config.visec_api_automatico,
+                  cada_minutos=config.visec_api_cada_minutos,
+                  ventana_dias=config.visec_api_ventana_dias,
+                  especies=config.visec_api_especies,
+                  periodo=periodo, ultima=ultima,
+                  proxima=(ultima["momento"] + timedelta(minutes=max(config.visec_api_cada_minutos, 1)))
+                          if ultima else None,
+                  conteo=visec_api.resumen_estado(), pendientes=pendientes,
+                  E=visec_api, **extra),
+        status_code=status_code,
+    )
+
+
+@app.get("/visec-api", response_class=HTMLResponse)
+def ver_visec_api(request: Request):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    return _pagina_visec_api(request, usuario)
+
+
+@app.post("/visec-api/probar", response_class=HTMLResponse)
+async def probar_visec_api(request: Request):
+    """Pide un token: prueba credenciales y red sin mandar ninguna CPE."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    try:
+        await asyncio.to_thread(visec_api.token, True)
+    except visec_api.ErrorVisecApi as e:
+        return _pagina_visec_api(request, usuario, 400, error=f"No conectó: {e}")
+    return _pagina_visec_api(request, usuario, ok=f"Conectó con Visec ({config.visec_api_ambiente}): "
+                                                  "las credenciales andan y dio un token.")
+
+
+@app.post("/visec-api/corrida", response_class=HTMLResponse)
+async def correr_visec_api(request: Request, confirmo: str = Form(""), ctgs: str = Form(""),
+                           desde: str = Form(""), hasta: str = Form("")):
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    solo_ver = confirmo != "si"
+    if not config.oracle_listo:
+        return _pagina_visec_api(request, usuario, 400,
+                                 error="Falta configurar el ERP: " + "; ".join(config.problemas_oracle()))
+    if not solo_ver and not config.visec_api_listo:
+        return _pagina_visec_api(request, usuario, 400,
+                                 error="Falta configurar Visec: " + "; ".join(config.problemas_visec_api()))
+    pedidos = list(dict.fromkeys(re.findall(r"\b\d{11}\b", ctgs or "")))
+    try:
+        desde_fecha = _fecha_form(desde, "desde")
+        hasta_fecha = _fecha_form(hasta, "hasta", fin_del_dia=True)
+    except ValueError as e:
+        return _pagina_visec_api(request, usuario, 400, error=str(e))
+    try:
+        resumen = await asyncio.to_thread(visec_api.corrida, not solo_ver,
+                                          desde_fecha, hasta_fecha, pedidos or None)
+    except (visec_api.ErrorVisecApi, oracle.ErrorOracle) as e:
+        return _pagina_visec_api(request, usuario, 400, error=str(e))
+    except Exception as e:
+        log.exception("Falló la corrida de Visec por API")
+        return _pagina_visec_api(request, usuario, 400, error=f"Falló la corrida: {e}")
+    if not solo_ver:
+        log.info("Usuario %s corrió Visec por API (%s)",
+                 usuario.get("email") or usuario.get("name"), config.visec_api_ambiente)
+    return plantillas.TemplateResponse(
+        request, "visec_api_corrida.html",
+        _contexto(request, usuario, seccion="visec_api", r=resumen, solo_ver=solo_ver,
+                  visec_ambiente=config.visec_api_ambiente, E=visec_api),
+    )
+
+
+@app.post("/visec-api/reintentar")
+async def reintentar_visec_api(request: Request):
+    """Vuelve a la cola las rechazadas que se marquen, una vez corregidas."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    formulario = await request.form()
+    ctgs = [c for c in formulario.getlist("ctg") if re.fullmatch(r"\d{11}", c)]
+    cuantos = visec_api.olvidar(ctgs)
+    return RedirectResponse(f"/visec-api?reintentar={cuantos}", status_code=303)
 
 
 @app.get("/bolsatech/pendientes", response_class=HTMLResponse)

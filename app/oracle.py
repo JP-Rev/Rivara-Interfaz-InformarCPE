@@ -121,6 +121,29 @@ SELECT i.IPL_PUNTO_INGRESO              AS punto_ingreso,
 """
 
 
+# Para VISEC por API. Son las columnas que ya saca scripts/ctg_soja.py para el
+# XLSX: lo que ARCA no tiene. El resto de la CPE sale de ARCA, como en el XLSX.
+CONSULTA_VISEC = """
+SELECT i.IPL_CTG                                         AS ctg,
+       NVL(i.IPL_FECHA_HORA_CONF_ARRIBO, i.IPL_FECHA_HORA) AS fecha_movimiento,
+       i.IPL_PESO_NETO                                   AS peso_ingreso_stock,
+       i.IPL_KILOS_ESTIMADOS                             AS kilos_estimados,
+       TRIM(i.IPL_NUMERO_RENSPA)                         AS renspa,
+       i.IPL_PUNTO_INGRESO                               AS punto_ingreso,
+       i.IPL_NUMERO_INGRESO                              AS numero_ingreso,
+       i.IPL_PLANTA                                      AS planta_codigo,
+       i.IPL_ESPECIE                                     AS especie_codigo,
+       i.IPL_COSECHA                                     AS cosecha,
+       i.IPL_FECHA_HORA                                  AS fecha_hora
+  FROM {esquema}.INGRESOS_PLANTAS i
+ WHERE i.IPL_CTG IS NOT NULL
+   AND i.IPL_PESO_NETO IS NOT NULL
+   AND i.IPL_PESO_NETO > 0
+   AND {filtro}
+ ORDER BY i.IPL_FECHA_HORA, i.IPL_PUNTO_INGRESO, i.IPL_NUMERO_INGRESO
+"""
+
+
 class ErrorOracle(RuntimeError):
     pass
 
@@ -244,6 +267,38 @@ def buscar_bolsatech(
                     datos["sociedad"] = config.oracle_esquemas[esquema]
                     filas.append(datos)
     log.info("Oracle (BolsaTech): %s ingresos", len(filas))
+    return filas
+
+
+def buscar_visec(
+    ctgs: list[str] | None = None,
+    desde=None,
+    hasta=None,
+    especies: list[str] | None = None,
+    esquemas: list[str] | None = None,
+) -> list[dict]:
+    """Los ingresos a informar a VISEC, por CTG o por rango de fechas.
+
+    Igual que en BolsaTech: por CTG no se filtra la especie (si alguien lo pegó
+    es porque lo quiere informar); por fecha sí.
+    """
+    filas: list[dict] = []
+    numeros = [c for c in dict.fromkeys(ctgs or []) if CTG.fullmatch(c)]
+    if ctgs is not None and not numeros:
+        return []
+    with conectar() as cn:
+        cur = cn.cursor()
+        for esquema in _esquemas_validos(esquemas):
+            for filtro, parametros in _filtros(numeros, desde, hasta, especies):
+                cur.execute(CONSULTA_VISEC.format(esquema=esquema, filtro=filtro), parametros)
+                columnas = [d[0].lower() for d in cur.description]
+                for fila in cur:
+                    datos = dict(zip(columnas, fila))
+                    datos["ctg"] = str(datos.get("ctg") or "").strip()
+                    datos["esquema"] = esquema
+                    datos["sociedad"] = config.oracle_esquemas[esquema]
+                    filas.append(datos)
+    log.info("Oracle (VISEC): %s ingresos", len(filas))
     return filas
 
 

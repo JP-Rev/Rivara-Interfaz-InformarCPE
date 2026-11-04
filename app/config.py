@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -75,6 +76,23 @@ def _credenciales() -> list[Credencial]:
         if len(partes) == 3 and all(partes):
             credenciales.append(Credencial(partes[0], Path(partes[1]), Path(partes[2])))
     return credenciales
+
+
+# Los dos ambientes de la API de VISEC. Son URL públicas, no secretos: lo
+# secreto (client_id y client_secret) va en el .env. Producción y staging
+# tienen el mismo contrato; solo cambian el host y el scope del token.
+VISEC_AMBIENTES = {
+    "stg": {
+        "url": "https://apim-visec-stg-001.azure-api.net/trazabilidad-b2b",
+        "token": "https://apim-visec-stg-001.azure-api.net/admin/ConfidentialClient/token",
+        "scope": "https://visecb2c.onmicrosoft.com/visec-trazabilidad-api/.default",
+    },
+    "prd": {
+        "url": "https://apim-visec-prd-001.azure-api.net/trazabilidad-b2b",
+        "token": "https://apim-visec-prd-001.azure-api.net/admin/ConfidentialClient/token",
+        "scope": "https://visecb2c.onmicrosoft.com/prod/visec-trazabilidad-api/.default",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -190,6 +208,32 @@ class Config:
     url_wscpe_override: str = os.getenv("ARCA_URL_WSCPE", "").strip()
     ns_wscpe: str = os.getenv("ARCA_NS_WSCPE", "").strip() or NS_WSCPE
 
+    # --- VISEC por API (el módulo del XLSX sigue aparte, sin cambios) ---
+    # stg o prd. Por omisión staging: pasar a producción es una decisión.
+    visec_api_ambiente: str = os.getenv("VISEC_API_AMBIENTE", "stg").strip().lower()
+    visec_api_client_id: str = os.getenv("VISEC_API_CLIENT_ID", "").strip()
+    visec_api_client_secret: str = os.getenv("VISEC_API_CLIENT_SECRET", "").strip()
+    # El CUIT que informa: va en el header current-company y en cuitEmpresa.
+    visec_api_cuit: str = os.getenv("VISEC_API_CUIT", "").strip()
+    visec_api_timeout: int = int(os.getenv("VISEC_API_TIMEOUT", "60"))
+    # Especies del ERP que van a VISEC. 38 = Soja EUDR, la que ya usa ctg_soja.py.
+    visec_api_especies: list[str] = field(default_factory=lambda: [
+        e.strip() for e in os.getenv("VISEC_API_ESPECIES", "38").split(",") if e.strip()
+    ])
+    # 1 ingreso, 2 egreso. Los ingresos a planta son 1.
+    visec_api_tipo_movimiento: int = int(os.getenv("VISEC_API_TIPO_MOVIMIENTO", "1"))
+    # Corrida automática, apagada por omisión. En minutos, no en horas: VISEC
+    # quiere el movimiento cerca de cuando pasa.
+    visec_api_automatico: bool = _bool("VISEC_API_AUTOMATICO", False)
+    visec_api_cada_minutos: int = int(os.getenv("VISEC_API_CADA_MINUTOS", "15"))
+    # Cada corrida mira los últimos N días, nunca antes de la fecha inicial.
+    # Lo ya registrado se saltea; lo que ARCA todavía no confirmó se reintenta.
+    visec_api_ventana_dias: int = int(os.getenv("VISEC_API_VENTANA_DIAS", "15"))
+    visec_api_fecha_inicial: str = os.getenv("VISEC_API_FECHA_INICIAL", "").strip()
+    # Cuántas CPE se consultan a ARCA por corrida, y cuántas van por envío.
+    visec_api_limite: int = int(os.getenv("VISEC_API_LIMITE", "100"))
+    visec_api_lote: int = int(os.getenv("VISEC_API_LOTE", "20"))
+
     @property
     def url_wsaa(self) -> str:
         return self.url_wsaa_override or URLS[self.entorno]["wsaa"]
@@ -215,6 +259,28 @@ class Config:
     def datos_planta(self, oncca: str) -> dict[str, str]:
         plantas = self.plantas_bolsatech
         return plantas.get(str(oncca or "").strip(), plantas.get("*", {}))
+
+    @property
+    def visec_api_urls(self) -> dict[str, str]:
+        return VISEC_AMBIENTES.get(self.visec_api_ambiente, {})
+
+    @property
+    def visec_api_listo(self) -> bool:
+        return not self.problemas_visec_api()
+
+    def problemas_visec_api(self) -> list[str]:
+        problemas = []
+        if self.visec_api_ambiente not in VISEC_AMBIENTES:
+            problemas.append(f"VISEC_API_AMBIENTE tiene que ser stg o prd, "
+                             f"no «{self.visec_api_ambiente}»")
+        for nombre, valor in (("VISEC_API_CLIENT_ID", self.visec_api_client_id),
+                              ("VISEC_API_CLIENT_SECRET", self.visec_api_client_secret),
+                              ("VISEC_API_CUIT", self.visec_api_cuit)):
+            if not valor:
+                problemas.append(f"Falta {nombre} en el .env")
+        if self.visec_api_cuit and not re.fullmatch(r"\d{11}", self.visec_api_cuit):
+            problemas.append("VISEC_API_CUIT tiene que ser el CUIT de 11 dígitos, sin guiones")
+        return problemas
 
     @property
     def bolsatech_listo(self) -> bool:

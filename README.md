@@ -751,6 +751,127 @@ más.
 Una CPE a la que le falte un dato obligatorio **no se informa**: aparece en la
 pantalla con el motivo, para corregirla en el ERP.
 
+## Informar CPE a Visec por API
+
+Cuarta sección del menú, **Visec por API**. Hace lo mismo que el XLSX de
+*Informar Visec* pero sin planilla: lee el ERP, completa con ARCA y manda cada
+CPE a la API de trazabilidad B2B de Visec, sola cada pocos minutos. El módulo
+del XLSX sigue funcionando igual, aparte.
+
+### Por qué es menos complejo de lo que parece
+
+El JSON de la API es, campo por campo y en el mismo orden, la planilla de 25
+columnas. Así que este módulo no traduce nada de nuevo: arma cada CPE con
+`visec.armar_fila`, la misma función que llena el XLSX, y solo convierte esas
+columnas a JSON con los tipos que pide la API (enteros para RUCA, producto y
+pesos por UP; texto para el resto; fechas ISO; campaña `25/26`).
+
+| De dónde | Qué |
+|---|---|
+| Oracle | qué CTG informar (especie `VISEC_API_ESPECIES`, por fecha) y lo que ARCA no tiene: fecha del movimiento, peso que entró a stock, kilos estimados, RENSPA. Las mismas columnas que `ctg_soja.py`. |
+| ARCA | el resto de la CPE: intervinientes, RUCA, producto, campaña, pesos de carga. |
+| Visec | recibe el JSON y lo procesa asincrónicamente. |
+
+### Los endpoints
+
+De los doce de la API, a un acopio le corresponden cinco. Se usan dos:
+
+| Endpoint | Para qué |
+|---|---|
+| `ProcesoImportacionJsonCartaPorte` | el alta. Devuelve un número de proceso, no el resultado. |
+| `ConsultarProcesoImportacionCartaPorte` | el resultado de cada CTG de ese proceso. |
+
+Los de stock (`ExisteStockRUCA`, `ExisteStockUnidadProductiva`) sirven para
+validar un camión cuando llega, que es otro momento. Según la gente del ERP no
+hacen falta: al llevar la soja Visec como especie propia, la validación queda
+implícita en la distribución de campo y en el contrato.
+
+La autenticación es OAuth2 *client credentials*: con `client_id` y
+`client_secret` por Basic auth se pide un token que dura 8 horas, y cada
+llamada lleva ese token más el header `current-company` con el CUIT. La app lo
+guarda en memoria y lo renueva sola cinco minutos antes de que venza.
+
+### Staging y producción
+
+Mismo contrato, distinto host y distinto scope del token. Se elige con
+`VISEC_API_AMBIENTE=stg|prd`, y **las credenciales son distintas en cada
+uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
+
+### Qué se manda, y qué no
+
+- **Solo CPE confirmadas o descargadas en ARCA (CN, DD).** Con el XLSX una
+  persona ve el aviso de "pesos no definitivos" y decide; acá nadie mira. Una
+  CPE todavía activa queda *esperando a ARCA* y se manda sola cuando se confirme.
+- **Lo que tenga 0 no va.** ARCA da `planta 0` cuando el origen es un productor,
+  y un RUCA 0 Visec lo rechaza. Lo mismo para producto y pesos.
+- **Si falta algo obligatorio, no se manda**: queda *con datos faltantes* y se
+  reintenta en cada corrida, por si el dato aparece.
+
+### El ciclo
+
+Cada corrida, primero pregunta el resultado de los procesos que quedaron
+esperando, y después busca lo nuevo. Mira los últimos `VISEC_API_VENTANA_DIAS`
+días (nunca antes de `VISEC_API_FECHA_INICIAL`); lo ya registrado se saltea por
+el estado local, en `/storage/informarcpe/visec_api/estado.json`. No hay fecha
+de corte como en BolsaTech: la ventana móvil hace que una CPE que tarda en
+confirmarse en ARCA no se pierda.
+
+Los envíos van de a `VISEC_API_LOTE`. Si Visec rechaza un lote entero en la
+prevalidación, se manda de a una, así una CPE mal no frena a las demás.
+
+| Estado | Qué significa | ¿Se reintenta sola? |
+|---|---|---|
+| registrada | Visec la registró | — |
+| enviada | está en un proceso, falta el resultado | se pregunta en la próxima |
+| rechazada | Visec dijo que no | **no**: se reintenta a mano |
+| esperando a ARCA | ARCA todavía no la confirmó | sí |
+| con datos faltantes | le falta algo obligatorio | sí |
+| con error | red, ARCA o Visec no respondieron | sí |
+
+**Las rechazadas no se reintentan solas**, a propósito: si Visec rechazó porque
+un RENSPA o un RUCA no está dado de alta, mandarla cada 15 minutos no lo
+arregla. Se corrige del lado de Visec y se vuelve a poner en la cola desde la
+pantalla. Cuando hay rechazos, la corrida automática manda un mail; cuando
+sale todo bien no, porque un mail cada 15 minutos con "todo bien" deja de
+leerse.
+
+Dos corridas nunca se pisan: si la automática está corriendo y alguien aprieta
+el botón, el botón avisa y no hace nada.
+
+Pedido y respuesta de cada llamada quedan en `visec_api/respuestas/`. El token
+va en las cabeceras, así que ahí no queda ningún secreto.
+
+### Lo que todavía hay que confirmar en staging
+
+El contrato tiene tres puntos que solo una respuesta real aclara:
+
+1. **`fechaCPE`.** El OpenAPI la describe como un objeto (`year`, `month`,
+   `day`...), que es como el generador documenta un `DateOnly` de .NET. En la
+   práctica .NET lo manda y lo recibe como texto `AAAA-MM-DD`, que es lo que se
+   envía. Si Visec lo rechaza, el 400 lo va a decir.
+2. **`numeroCPE`.** Va con el formato del XLSX (`FORMATO_NUMERO_CPE`).
+3. **Los estados del proceso.** La API no documenta qué valores toma
+   `codigoEstado` ni el estado de cada detalle. La app da por registrada una CPE
+   cuando el proceso ya procesó todos sus documentos y esa CPE no trae errores,
+   y por rechazada si trae errores o una descripción con "error", "rechaz",
+   "inválid" o "anulad". Con las primeras respuestas reales se ajusta.
+
+### En Visec: sucursales y unidades productivas
+
+La API exige que el RUCA de destino y el RENSPA de cada unidad productiva estén
+**dados de alta y habilitados en Visec**. Si una sucursal figura *Inhabilitada*
+en el portal de Visec, todo lo que entre por ella va a volver rechazado, por
+más que los datos estén bien.
+
+### Probarlo
+
+1. **Probar la conexión**: pide un token. No manda ninguna CPE.
+2. **Correr ahora** con un CTG puntual y sin tildar: muestra el JSON exacto.
+3. Lo mismo tildando: lo manda a staging.
+4. **Correr ahora** otra vez, sin nada: pregunta el resultado del proceso.
+
+Cuando eso salga bien con algunas CPE, `VISEC_API_AUTOMATICO=true`.
+
 ## Qué columnas completa, y de dónde
 
 | Columna de Visec | Origen (campos de la respuesta, manual wscpe v2.0.5) |
