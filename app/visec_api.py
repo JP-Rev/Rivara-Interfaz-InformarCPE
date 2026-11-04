@@ -67,8 +67,13 @@ ERROR = "error"                    # algo técnico (red, ARCA caído): se reinte
 # lo arregla. Se reintenta a mano desde la pantalla, una vez corregido.
 NO_REINTENTAR = {REGISTRADA, RECHAZADA, ENVIADA}
 
-# El servicio no documenta los códigos de estado del detalle, así que una
-# descripción con estas palabras se toma como rechazo aunque no traiga errores.
+# Los estados no están en el esquema sino en los ejemplos de respuesta de
+# ConsultarProcesoImportacionCartaPorte:
+#   detalle: {Id: 1, "OK"} o {Id: 2, "ERROR"}
+#   proceso: 3 "Finalizado Sin Error", 4 "Finalizado Con Error"
+DETALLE_OK, DETALLE_ERROR = 1, 2
+PROCESO_TERMINADO = {3, 4}
+# Por si aparece un estado que no está en los ejemplos.
 PALABRAS_DE_RECHAZO = re.compile(r"error|rechaz|inv[aá]lid|anulad", re.I)
 
 
@@ -174,21 +179,22 @@ def _texto_error(datos: Any) -> str:
     """El errorResponse de VISEC en una línea legible."""
     if not isinstance(datos, dict):
         return str(datos or "")[:500]
+    original, datos = datos, _minusculas(datos)
     error = datos.get("error") if isinstance(datos.get("error"), dict) else datos
     # errorMessage es genérico ("Error al convertir JSON."); el motivo de verdad
     # viene en details o en attempedValue (así, con la errata de ellos). Por
     # campo se prefiere details, y el genérico solo si no hay otra cosa.
     partes: list[str] = []
-    por_campo = [v for v in error.get("validationErrors") or [] if isinstance(v, dict)]
+    por_campo = [v for v in error.get("validationerrors") or [] if isinstance(v, dict)]
     for v in por_campo:
-        campo = v.get("propertyName") or ""
-        mensaje = v.get("details") or v.get("attempedValue") or v.get("errorMessage") or ""
+        campo = v.get("propertyname") or ""
+        mensaje = v.get("details") or v.get("attempedvalue") or v.get("errormessage") or ""
         partes.append(f"{campo}: {mensaje}" if campo else str(mensaje))
     if not por_campo:
-        detalle = error.get("details") or error.get("attempedValue")
-        partes.append(str(detalle or error.get("errorMessage") or ""))
+        detalle = error.get("details") or error.get("attempedvalue")
+        partes.append(str(detalle or error.get("errormessage") or ""))
     texto = " · ".join(str(p) for p in partes if p)
-    return texto or json.dumps(datos, ensure_ascii=False)[:500]
+    return texto or json.dumps(original, ensure_ascii=False)[:500]
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +222,30 @@ def _campania(valor: str) -> str:
     if re.fullmatch(r"\d{4}", texto):
         return f"{texto[:2]}/{texto[2:]}"
     return texto
+
+
+def _ctg_visec(valor: str) -> str:
+    """ARCA da el CTG con 11 dígitos; Visec lo quiere con 12, cero adelante.
+    Con 11 contesta "Formato de Número CTG incorrecto" (staging, 04/11/2026), y
+    en sus ejemplos de respuesta devuelve "NumeroCTG": "010000000001"."""
+    digitos = re.sub(r"\D", "", valor or "")
+    return digitos.zfill(12) if digitos else ""
+
+
+def _mismo_ctg(a: Any, b: Any) -> bool:
+    """El nuestro tiene 11 dígitos y el que devuelve Visec, 12."""
+    return str(a or "").strip().lstrip("0") == str(b or "").strip().lstrip("0")
+
+
+def _minusculas(datos: Any) -> Any:
+    """Las claves en minúscula. El 400 real vino en camelCase ("numeroCTG") y
+    los ejemplos de su documentación en PascalCase ("NumeroCTG"): así se leen
+    las dos formas sin depender de cuál usen en producción."""
+    if isinstance(datos, dict):
+        return {str(k).lower(): _minusculas(v) for k, v in datos.items()}
+    if isinstance(datos, list):
+        return [_minusculas(v) for v in datos]
+    return datos
 
 
 def _sin_vacios(datos: dict) -> dict:
@@ -248,16 +278,21 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
     fecha_movimiento = visec._fecha(momento, FORMATO_FECHA_HORA)
     fecha_cpe = visec._fecha(visec._buscar(cpe, "cabecera.fechaEmision"), "%Y-%m-%d")
 
+    # Qué va en cada movimiento depende de si es ingreso o egreso. Sale de los
+    # ejemplos de la propia documentación de Visec:
+    #   A  ingreso desde unidad productiva: RENSPA, descarga y stock
+    #   B  egreso de un sitio:              CTG asignado y carga
+    #   C  ingreso desde otro sitio:        descarga y stock
+    # En un ingreso el CTG asignado y la carga por UP van vacíos. Mandar el CTG
+    # asignado igual al propio (como hace el XLSX) Visec lo rechaza, y la carga
+    # por UP sería IPL_KILOS_ESTIMADOS: un estimado, no lo que pesó la balanza.
+    egreso = config.visec_api_tipo_movimiento == 2
     movimiento = _sin_vacios({
         "numeroRENSPA": v["Número RENSPA"],
-        "numeroCTGAsignado": v["Número CTG Asignado"],
-        # Lo que salió de la unidad productiva es lo que pesó la balanza, no
-        # IPL_KILOS_ESTIMADOS: un estimado de 30.000 contra 22.235 reales haría
-        # aparecer al campo despachando de más en el control de stock de la UP.
-        # (El XLSX sigue usando el estimado; este módulo no lo toca.)
-        "pesoNetoCargaKgPorUP": _positivo(v["Peso Ingreso Stock (Kg)"]),
-        "pesoNetoDescargaKgPorUP": _positivo(v["Peso Neto Descarga (Kg) por UP"]),
-        "pesoIngresoStockKg": _positivo(v["Peso Ingreso Stock (Kg)"]),
+        "numeroCTGAsignado": _ctg_visec(v["Número CTG Asignado"]) if egreso else "",
+        "pesoNetoCargaKgPorUP": _positivo(v["Peso Neto Carga (Kg) por UP"]) if egreso else None,
+        "pesoNetoDescargaKgPorUP": None if egreso else _positivo(v["Peso Neto Descarga (Kg) por UP"]),
+        "pesoIngresoStockKg": None if egreso else _positivo(v["Peso Ingreso Stock (Kg)"]),
         "ultimoAlmacenamiento": v["Último Almacenamiento"],
         "tipoMovimiento": config.visec_api_tipo_movimiento,
     })
@@ -265,7 +300,7 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
         "fechaHoraMovimiento": fecha_movimiento,
         "fechaCPE": fecha_cpe,
         "numeroCPE": v["Número CPE"],
-        "numeroCTG": v["Número CTG"],
+        "numeroCTG": _ctg_visec(v["Número CTG"]),
         "cuitTitular": v["CUIT Titular"],
         "numeroRUCAOrigen": _positivo(v["Número RUCA Origen"]),
         "cuitRemitenteComercialProductor": v["CUIT Remitente Comercial Productor"],
@@ -292,7 +327,7 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
         "fechaHoraMovimiento": "la fecha del movimiento",
     }
     faltan = [f"Falta {texto}" for campo, texto in obligatorios.items() if not carta.get(campo)]
-    if not movimiento.get("pesoIngresoStockKg"):
+    if not egreso and not movimiento.get("pesoIngresoStockKg"):
         faltan.append("Falta el peso que ingresó a stock")
     # El esquema no lo marca obligatorio, pero la descripción de
     # movimientoMercaderiaUP sí: si la CPE viene de un productor (sin RUCA de
@@ -374,8 +409,9 @@ def enviar(cpes: list[tuple[str, dict]]) -> dict[str, dict]:
         return {}
     status, datos = _llamar(RUTA_ALTA, {"cuitEmpresa": config.visec_api_cuit,
                                         "cartaPorte": [cuerpo for _, cuerpo in cpes]})
-    if status == 200 and isinstance(datos, dict) and datos.get("numero"):
-        numero = int(datos["numero"])
+    datos_ci = _minusculas(datos)
+    if status == 200 and isinstance(datos_ci, dict) and datos_ci.get("numero"):
+        numero = int(datos_ci["numero"])
         log.info("VISEC: proceso %s con %s CPE", numero, len(cpes))
         return {ctg: {"estado": ENVIADA, "proceso": numero, "detalle": "", "enviando": True}
                 for ctg, _ in cpes}
@@ -416,13 +452,15 @@ def revisar_procesos() -> dict[str, int]:
             log.warning("Proceso %s: HTTP %s %s", numero, status, _texto_error(datos))
             conteo[ENVIADA] += len(ctgs)
             continue
-        detalles = {str(d.get("numeroCTG") or "").strip(): d
-                    for d in datos.get("detalles") or [] if isinstance(d, dict)}
-        procesados = int(datos.get("documentosProcesados") or 0)
-        terminado = procesados >= len(ctgs)
-        descripcion_proceso = str(datos.get("descripcionEstado") or "")
+        datos = _minusculas(datos)
+        detalles = [d for d in datos.get("detalles") or [] if isinstance(d, dict)]
+        procesados = int(datos.get("documentosprocesados") or 0)
+        codigo_proceso = datos.get("codigoestado")
+        terminado = codigo_proceso in PROCESO_TERMINADO or procesados >= len(ctgs)
+        descripcion_proceso = str(datos.get("descripcionestado") or "")
         for ctg in ctgs:
-            detalle = detalles.get(ctg)
+            # Visec devuelve el CTG con 12 dígitos; el nuestro tiene 11.
+            detalle = next((d for d in detalles if _mismo_ctg(d.get("numeroctg"), ctg)), None)
             if detalle is None:
                 conteo[ENVIADA] += 1
                 if terminado:
@@ -430,15 +468,17 @@ def revisar_procesos() -> dict[str, int]:
                                     "detalle": f"El proceso {numero} terminó ({descripcion_proceso}) "
                                                "pero no trae resultado para este CTG"}
                 continue
-            errores = [f"{e.get('codigoError') or ''} {e.get('observaciones') or ''}".strip()
+            errores = [f"{e.get('codigoerror') or ''} {e.get('observaciones') or ''}".strip()
                        for e in detalle.get("errores") or [] if isinstance(e, dict)]
-            descripcion = str((detalle.get("estado") or {}).get("descripcion") or "")
-            if errores or PALABRAS_DE_RECHAZO.search(descripcion):
+            estado_detalle = detalle.get("estado") or {}
+            descripcion = str(estado_detalle.get("descripcion") or "")
+            id_detalle = estado_detalle.get("id")
+            if errores or id_detalle == DETALLE_ERROR or PALABRAS_DE_RECHAZO.search(descripcion):
                 cambios[ctg] = {"estado": RECHAZADA,
                                 "detalle": " · ".join(errores) or descripcion,
                                 "estado_visec": descripcion}
                 conteo[RECHAZADA] += 1
-            elif terminado:
+            elif id_detalle == DETALLE_OK or descripcion.upper() == "OK" or terminado:
                 cambios[ctg] = {"estado": REGISTRADA, "detalle": "", "estado_visec": descripcion}
                 conteo[REGISTRADA] += 1
             else:

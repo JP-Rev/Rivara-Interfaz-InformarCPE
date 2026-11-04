@@ -802,12 +802,21 @@ uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
 - **Solo CPE confirmadas o descargadas en ARCA (CN, DD).** Con el XLSX una
   persona ve el aviso de "pesos no definitivos" y decide; acá nadie mira. Una
   CPE todavía activa queda *esperando a ARCA* y se manda sola cuando se confirme.
-- **La carga por unidad productiva es el peso real, no el estimado.** El XLSX
-  usa `IPL_KILOS_ESTIMADOS`; acá va lo que pesó la balanza. VISEC controla el
-  stock de cada UP contra lo que salió de ella, y un estimado de 30.000 contra
-  22.235 reales haría aparecer al campo despachando de más. La carga de la CPE
-  (`pesoNetoCargaKg`) sigue siendo la de ARCA, porque es el dato del documento
-  y VISEC lo puede cruzar.
+- **Qué va en cada movimiento depende de si es ingreso o egreso**, como en
+  los ejemplos de la documentación de Visec:
+
+  | Ejemplo de Visec | RENSPA | CTG asignado | Carga por UP | Descarga y stock |
+  |---|---|---|---|---|
+  | A – ingreso desde unidad productiva | sí | — | — | sí |
+  | B – egreso de un sitio | — | sí | sí | — |
+  | C – ingreso desde otro sitio | — | — | — | sí |
+
+  Los ingresos a planta son el caso A o C: **no van ni el CTG asignado ni la
+  carga por UP**. El XLSX pone el mismo CTG como asignado ("criterio de
+  Rivara") y la carga por UP de `IPL_KILOS_ESTIMADOS`; por API, Visec rechaza
+  lo primero, y lo segundo sería un estimado (30.000 contra 22.235 reales en la
+  primera prueba). El peso real va en descarga y en stock. La carga de la CPE
+  (`pesoNetoCargaKg`) sí va, y es la de ARCA: es el dato del documento.
 - **Lo que tenga 0 no va.** ARCA da `planta 0` cuando el origen es un productor,
   y un RUCA 0 Visec lo rechaza. Lo mismo para producto y pesos.
 - **Si falta algo obligatorio, no se manda**: queda *con datos faltantes* y se
@@ -862,21 +871,27 @@ Confirmado con la primera respuesta real (04/11/2026):
   *"Allowed formats: 'yyyy-MM-dd'T'HH:mm:ss', 'yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'"*.
 - **El motivo de un 400 viene en `details`**, no en `errorMessage`, que es
   genérico ("Error al convertir JSON."). La pantalla muestra `details`.
+- **`fechaCPE` como texto `AAAA-MM-DD`** pasa la conversión, aunque el OpenAPI
+  la describa como objeto (así documenta el generador un `DateOnly` de .NET).
+- **El CTG va con 12 dígitos**, cero adelante: `010123352370`. Con los 11 de
+  ARCA contesta *"Formato de Número CTG incorrecto"*. Su respuesta de ejemplo
+  también lo devuelve así (`"NumeroCTG": "010000000001"`), así que al leer el
+  resultado se comparan sin los ceros de adelante.
 
-Falta confirmar:
+**Los ejemplos de la documentación** (dentro del OpenAPI, en cada endpoint)
+resolvieron lo que el esquema no decía: qué va en ingresos y egresos (tabla de
+arriba) y los estados del proceso:
 
-1. **`fechaCPE`.** El OpenAPI la describe como un objeto (`year`, `month`,
-   `day`...), que es como el generador documenta un `DateOnly` de .NET. En la
-   práctica .NET lo manda y lo recibe como texto `AAAA-MM-DD`, que es lo que se
-   envía. Si Visec lo rechaza, el 400 lo va a decir. (Con el primer envío no
-   se supo: el conversor corta en el primer error, y `fechaHoraMovimiento` va
-   antes.)
-2. **`numeroCPE`.** Va con el formato del XLSX (`FORMATO_NUMERO_CPE`).
-3. **Los estados del proceso.** La API no documenta qué valores toma
-   `codigoEstado` ni el estado de cada detalle. La app da por registrada una CPE
-   cuando el proceso ya procesó todos sus documentos y esa CPE no trae errores,
-   y por rechazada si trae errores o una descripción con "error", "rechaz",
-   "inválid" o "anulad". Con las primeras respuestas reales se ajusta.
+| | Valores |
+|---|---|
+| detalle de cada CTG | `{Id: 1, "OK"}` registrada · `{Id: 2, "ERROR"}` con `Errores` |
+| `CodigoEstado` del proceso | `3` Finalizado Sin Error · `4` Finalizado Con Error |
+
+Esos ejemplos vienen con las claves en mayúscula (`NumeroCTG`) y el 400 real
+vino en minúscula (`numeroCTG`): la app lee las dos.
+
+Falta confirmar: **`numeroCPE`**, que va con el formato del XLSX
+(`FORMATO_NUMERO_CPE`).
 
 ### En Visec: sucursales y unidades productivas
 
