@@ -802,6 +802,12 @@ uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
 - **Solo CPE confirmadas o descargadas en ARCA (CN, DD).** Con el XLSX una
   persona ve el aviso de "pesos no definitivos" y decide; acá nadie mira. Una
   CPE todavía activa queda *esperando a ARCA* y se manda sola cuando se confirme.
+- **La carga por unidad productiva es el peso real, no el estimado.** El XLSX
+  usa `IPL_KILOS_ESTIMADOS`; acá va lo que pesó la balanza. VISEC controla el
+  stock de cada UP contra lo que salió de ella, y un estimado de 30.000 contra
+  22.235 reales haría aparecer al campo despachando de más. La carga de la CPE
+  (`pesoNetoCargaKg`) sigue siendo la de ARCA, porque es el dato del documento
+  y VISEC lo puede cruzar.
 - **Lo que tenga 0 no va.** ARCA da `planta 0` cuando el origen es un productor,
   y un RUCA 0 Visec lo rechaza. Lo mismo para producto y pesos.
 - **Si falta algo obligatorio, no se manda**: queda *con datos faltantes* y se
@@ -877,6 +883,12 @@ más que los datos estén bien.
 4. **Correr ahora** otra vez, sin nada: pregunta el resultado del proceso.
 
 Cuando eso salga bien con algunas CPE, `VISEC_API_AUTOMATICO=true`.
+
+**El automático informa el día a día; lo atrasado se manda a mano.** La
+ventana mira los últimos `VISEC_API_VENTANA_DIAS` y la fecha inicial solo la
+acota, nunca la estira hacia atrás. Fuera de la cosecha de soja es normal que
+encuentre 0 ingresos. Para mandar una cosecha entera, *Correr ahora* con
+*Desde/Hasta*.
 
 ## Qué columnas completa, y de dónde
 

@@ -246,7 +246,11 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
     movimiento = _sin_vacios({
         "numeroRENSPA": v["Número RENSPA"],
         "numeroCTGAsignado": v["Número CTG Asignado"],
-        "pesoNetoCargaKgPorUP": _positivo(v["Peso Neto Carga (Kg) por UP"]),
+        # Lo que salió de la unidad productiva es lo que pesó la balanza, no
+        # IPL_KILOS_ESTIMADOS: un estimado de 30.000 contra 22.235 reales haría
+        # aparecer al campo despachando de más en el control de stock de la UP.
+        # (El XLSX sigue usando el estimado; este módulo no lo toca.)
+        "pesoNetoCargaKgPorUP": _positivo(v["Peso Ingreso Stock (Kg)"]),
         "pesoNetoDescargaKgPorUP": _positivo(v["Peso Neto Descarga (Kg) por UP"]),
         "pesoIngresoStockKg": _positivo(v["Peso Ingreso Stock (Kg)"]),
         "ultimoAlmacenamiento": v["Último Almacenamiento"],
