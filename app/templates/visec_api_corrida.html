@@ -23,7 +23,9 @@
     {% else %}
       {{ r.origen | capitalize }}.
     {% endif %}
-    {{ r.encontradas }} ingresos en el ERP, {{ r.ya_resueltas }} ya resueltos de antes.
+    {% set ni = r.filas | selectattr('tipo', 'equalto', 1) | list | length %}{% set ne = r.filas | selectattr('tipo', 'equalto', 2) | list | length %}
+    {{ r.encontradas }} {{ 'movimiento' if r.encontradas == 1 else 'movimientos' }} en el ERP{% if ni or ne %} ({{ ni }} {{ 'ingreso' if ni == 1 else 'ingresos' }}, {{ ne }} {{ 'egreso' if ne == 1 else 'egresos' }}){% endif %},
+    {{ r.ya_resueltas }} ya resueltos de antes.
     Ambiente: <strong>{{ 'producción' if r.ambiente == 'prd' else 'staging' }}</strong>.
   </p>
 
