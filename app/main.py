@@ -1162,9 +1162,11 @@ def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, *
     datos = visec_api.estado()
     pendientes = {e: [] for e in (visec_api.RECHAZADA, visec_api.ENVIADA, visec_api.FALTAN_DATOS,
                                   visec_api.ESPERANDO_ARCA, visec_api.ERROR)}
-    for ctg, d in sorted(datos.items(), key=lambda x: x[1].get("cuando", ""), reverse=True):
+    for k, d in sorted(datos.items(), key=lambda x: x[1].get("cuando", ""), reverse=True):
         if d.get("estado") in pendientes:
-            pendientes[d["estado"]].append(dict(d, ctg=ctg))
+            tipo = visec_api.tipo_de(k, d)
+            pendientes[d["estado"]].append(dict(d, clave=k, ctg=visec_api.ctg_de(k, d),
+                                                tipo_nombre=visec_api.NOMBRE_TIPO[tipo]))
     ultima = visec_api.ultima_automatica()
     try:
         periodo = visec_api.periodo()
@@ -1178,6 +1180,7 @@ def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, *
                   automatico=config.visec_api_automatico,
                   cada_minutos=config.visec_api_cada_minutos,
                   ventana_dias=config.visec_api_ventana_dias,
+                  egresos=config.visec_api_egresos,
                   especies=config.visec_api_especies,
                   periodo=periodo, ultima=ultima,
                   proxima=(ultima["momento"] + timedelta(minutes=max(config.visec_api_cada_minutos, 1)))
@@ -1254,8 +1257,8 @@ async def reintentar_visec_api(request: Request):
     if isinstance(usuario, RedirectResponse):
         return usuario
     formulario = await request.form()
-    ctgs = [c for c in formulario.getlist("ctg") if re.fullmatch(r"\d{11}", c)]
-    cuantos = visec_api.olvidar(ctgs)
+    claves = [c for c in formulario.getlist("clave") if re.fullmatch(r"\d{11}(-egreso)?", c)]
+    cuantos = visec_api.olvidar(claves)
     return RedirectResponse(f"/visec-api?reintentar={cuantos}", status_code=303)
 
 

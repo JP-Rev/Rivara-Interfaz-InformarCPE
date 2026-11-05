@@ -220,8 +220,10 @@ class Config:
     visec_api_especies: list[str] = field(default_factory=lambda: [
         e.strip() for e in os.getenv("VISEC_API_ESPECIES", "38").split(",") if e.strip()
     ])
-    # 1 ingreso, 2 egreso. Los ingresos a planta son 1.
-    visec_api_tipo_movimiento: int = int(os.getenv("VISEC_API_TIPO_MOVIMIENTO", "1"))
+    # Los egresos (EGRESOS_PLANTAS) también van a Visec. Apagados por omisión,
+    # como el automático: se encienden después de probarlos. Con CTG puntuales
+    # se buscan igual, para poder probarlos antes de encenderlos.
+    visec_api_egresos: bool = _bool("VISEC_API_EGRESOS", False)
     # Corrida automática, apagada por omisión. En minutos, no en horas: VISEC
     # quiere el movimiento cerca de cuando pasa.
     visec_api_automatico: bool = _bool("VISEC_API_AUTOMATICO", False)

@@ -144,6 +144,37 @@ SELECT i.IPL_CTG                                         AS ctg,
 """
 
 
+# Egresos para VISEC. Visec resuelve sola la traza (de qué entradas sale cada
+# camión), así que alcanza con el CTG, la fecha de carga y el peso; el resto
+# sale de ARCA. EPL_FECHA_DEL_MOVIMIENTO viene vacía en la práctica, por eso
+# manda EPL_FECHA_HORA_BRUTO: es cuando el camión ya está cargado.
+# EPL_TIPO_EGRESO: P retiro de productor, C contrato de venta.
+CONSULTA_VISEC_EGRESOS = """
+SELECT TRIM(e.EPL_CTG)                                       AS ctg,
+       NVL(e.EPL_FECHA_HORA_BRUTO, e.EPL_FECHA_DEL_MOVIMIENTO) AS fecha_movimiento,
+       e.EPL_PESO_MERCADERIA                                 AS peso_carga,
+       e.EPL_TIPO_EGRESO                                     AS tipo_egreso,
+       TRIM(e.EPL_CUIT_PRODUCTOR)                            AS cuit_productor,
+       e.EPL_PUNTO_EGRESO                                    AS punto_egreso,
+       e.EPL_NUMERO_EGRESO                                   AS numero_egreso,
+       e.EPL_PLANTA                                          AS planta_codigo,
+       e.EPL_ESPECIE                                         AS especie_codigo,
+       e.EPL_COSECHA                                         AS cosecha,
+       e.EPL_FECHA_HORA_BRUTO                                AS fecha_hora
+  FROM {esquema}.EGRESOS_PLANTAS e
+ WHERE e.EPL_CTG IS NOT NULL
+   AND e.EPL_PESO_MERCADERIA IS NOT NULL
+   AND e.EPL_PESO_MERCADERIA > 0
+   AND {filtro}
+ ORDER BY e.EPL_FECHA_HORA_BRUTO, e.EPL_PUNTO_EGRESO, e.EPL_NUMERO_EGRESO
+"""
+
+# Las columnas por las que filtran _filtros, en cada tabla.
+COLUMNAS_INGRESOS = {"ctg": "i.IPL_CTG", "fecha": "i.IPL_FECHA_HORA", "especie": "i.IPL_ESPECIE"}
+COLUMNAS_EGRESOS = {"ctg": "TRIM(e.EPL_CTG)", "fecha": "e.EPL_FECHA_HORA_BRUTO",
+                    "especie": "TRIM(e.EPL_ESPECIE)"}
+
+
 class ErrorOracle(RuntimeError):
     pass
 
@@ -276,12 +307,16 @@ def buscar_visec(
     hasta=None,
     especies: list[str] | None = None,
     esquemas: list[str] | None = None,
+    egresos: bool = False,
 ) -> list[dict]:
-    """Los ingresos a informar a VISEC, por CTG o por rango de fechas.
+    """Los ingresos (o los egresos) a informar a VISEC, por CTG o por fechas.
 
     Igual que en BolsaTech: por CTG no se filtra la especie (si alguien lo pegó
-    es porque lo quiere informar); por fecha sí.
+    es porque lo quiere informar); por fecha sí. Cada fila lleva "tipo": 1 si
+    es un ingreso y 2 si es un egreso, que es el tipoMovimiento de Visec.
     """
+    consulta = CONSULTA_VISEC_EGRESOS if egresos else CONSULTA_VISEC
+    columnas_filtro = COLUMNAS_EGRESOS if egresos else COLUMNAS_INGRESOS
     filas: list[dict] = []
     numeros = [c for c in dict.fromkeys(ctgs or []) if CTG.fullmatch(c)]
     if ctgs is not None and not numeros:
@@ -289,34 +324,40 @@ def buscar_visec(
     with conectar() as cn:
         cur = cn.cursor()
         for esquema in _esquemas_validos(esquemas):
-            for filtro, parametros in _filtros(numeros, desde, hasta, especies):
-                cur.execute(CONSULTA_VISEC.format(esquema=esquema, filtro=filtro), parametros)
+            for filtro, parametros in _filtros(numeros, desde, hasta, especies, columnas_filtro):
+                cur.execute(consulta.format(esquema=esquema, filtro=filtro), parametros)
                 columnas = [d[0].lower() for d in cur.description]
                 for fila in cur:
                     datos = dict(zip(columnas, fila))
                     datos["ctg"] = str(datos.get("ctg") or "").strip()
+                    datos["tipo"] = 2 if egresos else 1
                     datos["esquema"] = esquema
                     datos["sociedad"] = config.oracle_esquemas[esquema]
                     filas.append(datos)
-    log.info("Oracle (VISEC): %s ingresos", len(filas))
+    log.info("Oracle (VISEC): %s %s", len(filas), "egresos" if egresos else "ingresos")
     return filas
 
 
-def _filtros(numeros: list[str], desde, hasta, especies: list[str] | None):
-    """(trozo de WHERE, parámetros). Todo va por bind variables."""
+def _filtros(numeros: list[str], desde, hasta, especies: list[str] | None,
+             columnas: dict[str, str] | None = None):
+    """(trozo de WHERE, parámetros). Todo va por bind variables.
+
+    `columnas` son nombres fijos del código (COLUMNAS_INGRESOS o _EGRESOS),
+    nunca algo que venga de la pantalla."""
+    col = columnas or COLUMNAS_INGRESOS
     if numeros:
         for tanda in _por_tandas(numeros, 500):
             marcas = ", ".join(f":c{i}" for i in range(len(tanda)))
-            yield (f"i.IPL_CTG IN ({marcas})",
+            yield (f"{col['ctg']} IN ({marcas})",
                    {f"c{i}": v for i, v in enumerate(tanda)})
         return
     if not (desde and hasta):
         raise ErrorOracle("Hace falta una lista de CTG o un rango de fechas.")
-    condiciones = ["i.IPL_FECHA_HORA > :desde", "i.IPL_FECHA_HORA <= :hasta"]
+    condiciones = [f"{col['fecha']} > :desde", f"{col['fecha']} <= :hasta"]
     parametros: dict = {"desde": desde, "hasta": hasta}
     if especies:
         marcas = ", ".join(f":e{i}" for i in range(len(especies)))
-        condiciones.append(f"i.IPL_ESPECIE IN ({marcas})")
+        condiciones.append(f"{col['especie']} IN ({marcas})")
         parametros.update({f"e{i}": v for i, v in enumerate(especies)})
     yield " AND ".join(condiciones), parametros
 

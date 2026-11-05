@@ -62,6 +62,21 @@ ESPERANDO_ARCA = "esperando_arca"  # ARCA todavía no la confirmó: se reintenta
 FALTAN_DATOS = "faltan_datos"      # le falta algo obligatorio: se reintenta
 ERROR = "error"                    # algo técnico (red, ARCA caído): se reintenta
 
+# El tipoMovimiento de Visec. Lo da la tabla de origen: INGRESOS_PLANTAS o
+# EGRESOS_PLANTAS.
+INGRESO, EGRESO = 1, 2
+NOMBRE_TIPO = {INGRESO: "ingreso", EGRESO: "egreso"}
+
+# En qué estado de ARCA se puede informar cada tipo. Un ingreso, recién con la
+# CPE confirmada o descargada: antes los pesos de descarga pueden cambiar. Un
+# egreso se informa en el momento, como pidió Visec, y en el momento la CPE está
+# activa: el peso es el de nuestra balanza al cargar y ya es definitivo. Nunca
+# una anulada, rechazada, desactivada, inactiva o borrador.
+ESTADOS_ARCA_OK = {
+    INGRESO: {"CN", "DD"},
+    EGRESO: {"AC", "CF", "CO", "CN", "DD"},
+}
+
 # Lo que no se vuelve a mandar. RECHAZADA está acá a propósito: si VISEC
 # rechazó por un RENSPA que no tiene dado de alta, mandarla cada 15 minutos no
 # lo arregla. Se reintenta a mano desde la pantalla, una vez corregido.
@@ -253,16 +268,34 @@ def _sin_vacios(datos: dict) -> dict:
     return {k: v for k, v in datos.items() if v not in ("", None, [])}
 
 
+def clave(ctg: str, tipo: int) -> str:
+    """La clave en estado.json. Un ingreso y un egreso pueden tener el mismo CTG
+    (un traslado entre plantas propias sale de una y entra a otra) y para Visec
+    son dos movimientos: van por separado. El ingreso queda con el CTG solo, como
+    antes de que hubiera egresos."""
+    return ctg if tipo == INGRESO else f"{ctg}-egreso"
+
+
+def ctg_de(clave_: str, datos: dict | None = None) -> str:
+    return (datos or {}).get("ctg") or clave_.split("-")[0]
+
+
+def tipo_de(clave_: str, datos: dict | None = None) -> int:
+    return int((datos or {}).get("tipo") or (EGRESO if clave_.endswith("-egreso") else INGRESO))
+
+
 def propios_de(fila: dict) -> dict[str, Any]:
     """Lo que armar_fila espera de "los datos del sistema", desde la fila de Oracle."""
     def texto(clave):
         valor = fila.get(clave)
         return "" if valor is None else str(valor).strip()
     return {
+        "tipo": int(fila.get("tipo") or INGRESO),
         "fecha_movimiento": fila.get("fecha_movimiento"),
         "peso_ingreso_stock": texto("peso_ingreso_stock"),
         "kilos_estimados": texto("kilos_estimados"),
         "renspa": texto("renspa"),
+        "peso_carga": texto("peso_carga"),
     }
 
 
@@ -281,21 +314,32 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
     # Qué va en cada movimiento depende de si es ingreso o egreso. Sale de los
     # ejemplos de la propia documentación de Visec:
     #   A  ingreso desde unidad productiva: RENSPA, descarga y stock
-    #   B  egreso de un sitio:              CTG asignado y carga
+    #   B  egreso de un sitio:              carga (y CTG asignado)
     #   C  ingreso desde otro sitio:        descarga y stock
     # En un ingreso el CTG asignado y la carga por UP van vacíos. Mandar el CTG
     # asignado igual al propio (como hace el XLSX) Visec lo rechaza, y la carga
     # por UP sería IPL_KILOS_ESTIMADOS: un estimado, no lo que pesó la balanza.
-    egreso = config.visec_api_tipo_movimiento == 2
-    movimiento = _sin_vacios({
-        "numeroRENSPA": v["Número RENSPA"],
-        "numeroCTGAsignado": _ctg_visec(v["Número CTG Asignado"]) if egreso else "",
-        "pesoNetoCargaKgPorUP": _positivo(v["Peso Neto Carga (Kg) por UP"]) if egreso else None,
-        "pesoNetoDescargaKgPorUP": None if egreso else _positivo(v["Peso Neto Descarga (Kg) por UP"]),
-        "pesoIngresoStockKg": None if egreso else _positivo(v["Peso Ingreso Stock (Kg)"]),
-        "ultimoAlmacenamiento": v["Último Almacenamiento"],
-        "tipoMovimiento": config.visec_api_tipo_movimiento,
-    })
+    # En un egreso tampoco va el CTG asignado: Visec confirmó (05/11/2026) que
+    # la traza la resuelve su sistema, y que alcanza con lo que registra el ERP.
+    tipo = int(propios.get("tipo") or INGRESO)
+    egreso = tipo == EGRESO
+    if egreso:
+        movimiento = _sin_vacios({
+            # El peso que salió es el de nuestra balanza (EPL_PESO_MERCADERIA);
+            # si el ERP no lo tiene, el de la CPE.
+            "pesoNetoCargaKgPorUP": _positivo(propios.get("peso_carga"))
+                                    or _positivo(v["Peso Neto Carga (Kg)"]),
+            "ultimoAlmacenamiento": v["Último Almacenamiento"],
+            "tipoMovimiento": EGRESO,
+        })
+    else:
+        movimiento = _sin_vacios({
+            "numeroRENSPA": v["Número RENSPA"],
+            "pesoNetoDescargaKgPorUP": _positivo(v["Peso Neto Descarga (Kg) por UP"]),
+            "pesoIngresoStockKg": _positivo(v["Peso Ingreso Stock (Kg)"]),
+            "ultimoAlmacenamiento": v["Último Almacenamiento"],
+            "tipoMovimiento": INGRESO,
+        })
     carta = _sin_vacios({
         "fechaHoraMovimiento": fecha_movimiento,
         "fechaCPE": fecha_cpe,
@@ -327,15 +371,22 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
         "fechaHoraMovimiento": "la fecha del movimiento",
     }
     faltan = [f"Falta {texto}" for campo, texto in obligatorios.items() if not carta.get(campo)]
-    if not egreso and not movimiento.get("pesoIngresoStockKg"):
-        faltan.append("Falta el peso que ingresó a stock")
-    # El esquema no lo marca obligatorio, pero la descripción de
-    # movimientoMercaderiaUP sí: si la CPE viene de un productor (sin RUCA de
-    # origen), cada movimiento es una unidad productiva y va con su RENSPA. Sin
-    # él no hay trazabilidad, que es para lo que existe Visec. Queda en "datos
-    # faltantes", que se reintenta solo: sale en cuanto se cargue en el ERP.
-    if not carta.get("numeroRUCAOrigen") and not movimiento.get("numeroRENSPA"):
-        faltan.append("Falta el RENSPA: viene de un productor y Visec pide la unidad productiva")
+    if egreso:
+        # Un egreso sale de una planta nuestra: sin RUCA de origen no se sabe de dónde.
+        if not carta.get("numeroRUCAOrigen"):
+            faltan.append("Falta el RUCA de origen: un egreso sale de una planta nuestra")
+        if not movimiento.get("pesoNetoCargaKgPorUP"):
+            faltan.append("Falta el peso que salió")
+    else:
+        if not movimiento.get("pesoIngresoStockKg"):
+            faltan.append("Falta el peso que ingresó a stock")
+        # El esquema no lo marca obligatorio, pero la descripción de
+        # movimientoMercaderiaUP sí: si la CPE viene de un productor (sin RUCA de
+        # origen), cada movimiento es una unidad productiva y va con su RENSPA.
+        # Sin él no hay trazabilidad, que es para lo que existe Visec. Queda en
+        # "datos faltantes", que se reintenta solo: sale en cuanto se cargue.
+        if not carta.get("numeroRUCAOrigen") and not movimiento.get("numeroRENSPA"):
+            faltan.append("Falta el RENSPA: viene de un productor y Visec pide la unidad productiva")
     return carta, faltan, fila
 
 
@@ -378,13 +429,14 @@ def anotar(cambios: dict[str, dict]) -> None:
         _guardar_estado(datos)
 
 
-def olvidar(ctgs: list[str]) -> int:
-    """Para volver a mandar una rechazada, una vez corregida del otro lado."""
+def olvidar(claves: list[str]) -> int:
+    """Para volver a mandar una rechazada, una vez corregida del otro lado.
+    Recibe claves de estado.json (ver clave()), no CTG sueltos."""
     with _candado_estado:
         datos = estado()
         cuantos = 0
-        for ctg in ctgs:
-            if datos.pop(ctg, None) is not None:
+        for k in claves:
+            if datos.pop(k, None) is not None:
                 cuantos += 1
         if cuantos:
             _guardar_estado(datos)
@@ -436,9 +488,10 @@ def consultar_proceso(numero: int) -> tuple[int, Any]:
 def revisar_procesos() -> dict[str, int]:
     """Pregunta el resultado de los procesos que quedaron esperando."""
     pendientes: dict[int, list[str]] = {}
-    for ctg, d in estado().items():
+    datos_estado = estado()
+    for k, d in datos_estado.items():
         if d.get("estado") == ENVIADA and d.get("proceso"):
-            pendientes.setdefault(int(d["proceso"]), []).append(ctg)
+            pendientes.setdefault(int(d["proceso"]), []).append(k)
     conteo = {REGISTRADA: 0, RECHAZADA: 0, ENVIADA: 0}
     cambios: dict[str, dict] = {}
     for numero, ctgs in pendientes.items():
@@ -458,9 +511,12 @@ def revisar_procesos() -> dict[str, int]:
         codigo_proceso = datos.get("codigoestado")
         terminado = codigo_proceso in PROCESO_TERMINADO or procesados >= len(ctgs)
         descripcion_proceso = str(datos.get("descripcionestado") or "")
-        for ctg in ctgs:
-            # Visec devuelve el CTG con 12 dígitos; el nuestro tiene 11.
-            detalle = next((d for d in detalles if _mismo_ctg(d.get("numeroctg"), ctg)), None)
+        for ctg in ctgs:   # son claves de estado.json
+            # Visec devuelve el CTG con 12 dígitos; el nuestro tiene 11. Ingresos
+            # y egresos van en procesos separados, así que en un proceso un CTG
+            # aparece una sola vez.
+            numero_ctg = ctg_de(ctg, datos_estado.get(ctg))
+            detalle = next((d for d in detalles if _mismo_ctg(d.get("numeroctg"), numero_ctg)), None)
             if detalle is None:
                 conteo[ENVIADA] += 1
                 if terminado:
@@ -536,38 +592,54 @@ def _corrida(enviar_de_verdad, desde, hasta, ctgs) -> dict:
     from . import oracle, wscpe
 
     resumen: dict[str, Any] = {"enviar": enviar_de_verdad, "ambiente": config.visec_api_ambiente,
-                               "procesos": {}, "filas": [], "por_estado": {},
-                               "incompleta": False, "encontradas": 0}
+                               "procesos": {}, "filas": [], "por_estado": {}, "avisos": [],
+                               "incompleta": False, "encontradas": 0,
+                               "egresos": config.visec_api_egresos}
     if enviar_de_verdad:
         resumen["procesos"] = revisar_procesos()
 
     if ctgs:
-        filas = oracle.buscar_visec(ctgs=ctgs)
         resumen.update(desde=None, hasta=None, origen="los CTG pedidos")
+        buscar = {"ctgs": ctgs}
     else:
         d, h, origen = periodo(desde, hasta)
-        filas = oracle.buscar_visec(desde=d, hasta=h, especies=config.visec_api_especies)
         resumen.update(desde=d, hasta=h, origen=origen)
+        buscar = {"desde": d, "hasta": h, "especies": config.visec_api_especies}
 
-    # El mismo CTG puede estar en dos esquemas; va una sola vez.
+    filas = oracle.buscar_visec(**buscar)
+    # Los egresos van si están encendidos, o si se pidieron CTG puntuales (para
+    # poder probarlos antes de encenderlos). Que falle la tabla de egresos (por
+    # ejemplo, sin permiso todavía) no frena los ingresos.
+    if config.visec_api_egresos or ctgs:
+        try:
+            filas += oracle.buscar_visec(egresos=True, **buscar)
+        except Exception as error:
+            log.warning("No se pudieron leer los egresos: %s", error)
+            resumen["avisos"].append(f"No se pudieron leer los egresos: {error}")
+
+    # El mismo movimiento puede estar en dos esquemas; va una sola vez. Un
+    # ingreso y un egreso con el mismo CTG son dos movimientos distintos.
     unicas: dict[str, dict] = {}
     for fila in filas:
-        unicas.setdefault(fila["ctg"], fila)
+        unicas.setdefault(clave(fila["ctg"], int(fila.get("tipo") or INGRESO)), fila)
     resumen["encontradas"] = len(unicas)
 
     ya = estado()
-    candidatas = [f for ctg, f in unicas.items()
-                  if ya.get(ctg, {}).get("estado") not in NO_REINTENTAR]
+    candidatas = [(k, f) for k, f in unicas.items()
+                  if ya.get(k, {}).get("estado") not in NO_REINTENTAR]
     limite = max(config.visec_api_limite, 1)
     resumen["incompleta"] = len(candidatas) > limite
     resumen["ya_resueltas"] = len(unicas) - len(candidatas)
 
-    listas: list[tuple[str, dict]] = []
+    listas: dict[int, list[tuple[str, dict]]] = {INGRESO: [], EGRESO: []}
     cambios: dict[str, dict] = {}
-    for fila in candidatas[:limite]:
+    for k, fila in candidatas[:limite]:
         ctg = fila["ctg"]
-        base = {"ctg": ctg, "sociedad": fila.get("sociedad", ""),
+        tipo = int(fila.get("tipo") or INGRESO)
+        base = {"clave": k, "ctg": ctg, "tipo": tipo, "tipo_nombre": NOMBRE_TIPO[tipo],
+                "sociedad": fila.get("sociedad", ""),
                 "fecha": fila.get("fecha_movimiento") or fila.get("fecha_hora")}
+        identidad = {"ctg": ctg, "tipo": tipo}
         try:
             consulta = wscpe.consultar(ctg)
         except Exception as error:  # ARCA caído no frena la corrida
@@ -575,44 +647,52 @@ def _corrida(enviar_de_verdad, desde, hasta, ctgs) -> dict:
             consulta = Consulta(ctg, errores=[str(error)])
         if not consulta.ok:
             motivo = "ARCA no la devolvió: " + "; ".join(consulta.errores or ["sin detalle"])
-            cambios[ctg] = {"estado": ERROR, "detalle": motivo}
+            cambios[k] = {**identidad, "estado": ERROR, "detalle": motivo}
             resumen["filas"].append({**base, "estado": ERROR, "detalle": motivo})
             continue
         codigo = consulta.estado.upper()
-        if codigo not in visec.ESTADOS_FINALES:
+        if codigo not in ESTADOS_ARCA_OK[tipo]:
             motivo = f"ARCA la tiene en {visec.ESTADOS.get(codigo, codigo) or 'estado desconocido'}"
-            cambios[ctg] = {"estado": ESPERANDO_ARCA, "detalle": motivo, "estado_arca": codigo}
+            cambios[k] = {**identidad, "estado": ESPERANDO_ARCA, "detalle": motivo, "estado_arca": codigo}
             resumen["filas"].append({**base, "estado": ESPERANDO_ARCA, "detalle": motivo})
             continue
         cuerpo, faltan, _ = armar(consulta, propios_de(fila))
         if faltan:
             motivo = "; ".join(faltan)
-            cambios[ctg] = {"estado": FALTAN_DATOS, "detalle": motivo, "estado_arca": codigo}
+            cambios[k] = {**identidad, "estado": FALTAN_DATOS, "detalle": motivo, "estado_arca": codigo}
             resumen["filas"].append({**base, "estado": FALTAN_DATOS, "detalle": motivo})
             continue
-        listas.append((ctg, cuerpo))
+        listas[tipo].append((k, cuerpo))
+        mov = cuerpo["movimientoMercaderiaUP"][0]
         resumen["filas"].append({**base, "estado": "lista", "detalle": "",
+                                 "ruca_origen": cuerpo.get("numeroRUCAOrigen"),
                                  "ruca_destino": cuerpo.get("numeroRUCADestino"),
-                                 "renspa": cuerpo["movimientoMercaderiaUP"][0].get("numeroRENSPA", ""),
-                                 "kilos": cuerpo["movimientoMercaderiaUP"][0].get("pesoIngresoStockKg"),
+                                 "renspa": mov.get("numeroRENSPA", ""),
+                                 "kilos": mov.get("pesoIngresoStockKg") or mov.get("pesoNetoCargaKgPorUP"),
                                  "json": cuerpo})
 
     if enviar_de_verdad:
         lote = max(config.visec_api_lote, 1)
-        for inicio in range(0, len(listas), lote):
-            try:
-                cambios.update(enviar(listas[inicio:inicio + lote]))
-            except ErrorVisecApi as error:
-                log.warning("VISEC: %s", error)
-                for ctg, _ in listas[inicio:inicio + lote]:
-                    cambios[ctg] = {"estado": ERROR, "detalle": str(error)}
+        # Ingresos y egresos en procesos separados: así un traslado entre plantas
+        # propias (mismo CTG, sale de una y entra a otra) no se confunde al leer
+        # el resultado.
+        for tipo, cpes in listas.items():
+            for inicio in range(0, len(cpes), lote):
+                tanda = cpes[inicio:inicio + lote]
+                try:
+                    resultado = enviar(tanda)
+                except ErrorVisecApi as error:
+                    log.warning("VISEC: %s", error)
+                    resultado = {k: {"estado": ERROR, "detalle": str(error)} for k, _ in tanda}
+                for k, cambio in resultado.items():
+                    cambios[k] = {"ctg": ctg_de(k), "tipo": tipo, **cambio}
         if cambios:
             anotar(cambios)
         for f in resumen["filas"]:
-            if f["ctg"] in cambios:
-                f["estado"] = cambios[f["ctg"]]["estado"]
-                f["detalle"] = cambios[f["ctg"]].get("detalle", "")
-                f["proceso"] = cambios[f["ctg"]].get("proceso")
+            if f["clave"] in cambios:
+                f["estado"] = cambios[f["clave"]]["estado"]
+                f["detalle"] = cambios[f["clave"]].get("detalle", "")
+                f["proceso"] = cambios[f["clave"]].get("proceso")
 
     for f in resumen["filas"]:
         resumen["por_estado"][f["estado"]] = resumen["por_estado"].get(f["estado"], 0) + 1

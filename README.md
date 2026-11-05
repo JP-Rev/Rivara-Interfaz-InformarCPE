@@ -768,7 +768,8 @@ pesos por UP; texto para el resto; fechas ISO; campaña `25/26`).
 
 | De dónde | Qué |
 |---|---|
-| Oracle | qué CTG informar (especie `VISEC_API_ESPECIES`, por fecha) y lo que ARCA no tiene: fecha del movimiento, peso que entró a stock, kilos estimados, RENSPA. Las mismas columnas que `ctg_soja.py`. |
+| Oracle, ingresos | `INGRESOS_PLANTAS`: qué CTG informar (especie `VISEC_API_ESPECIES`, por fecha) y lo que ARCA no tiene: fecha del movimiento, peso que entró a stock, RENSPA. Las mismas columnas que `ctg_soja.py`. |
+| Oracle, egresos | `EGRESOS_PLANTAS`: CTG, fecha de carga y peso que salió (ver *Egresos*). |
 | ARCA | el resto de la CPE: intervinientes, RUCA, producto, campaña, pesos de carga. |
 | Visec | recibe el JSON y lo procesa asincrónicamente. |
 
@@ -799,16 +800,17 @@ uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
 
 ### Qué se manda, y qué no
 
-- **Solo CPE confirmadas o descargadas en ARCA (CN, DD).** Con el XLSX una
-  persona ve el aviso de "pesos no definitivos" y decide; acá nadie mira. Una
-  CPE todavía activa queda *esperando a ARCA* y se manda sola cuando se confirme.
+- **Un ingreso, solo si ARCA ya lo confirmó o descargó (CN, DD).** Con el XLSX
+  una persona ve el aviso de "pesos no definitivos" y decide; acá nadie mira.
+  Un ingreso todavía activo queda *esperando a ARCA* y se manda solo cuando se
+  confirme. Los egresos, en cambio, van en el momento (ver *Egresos*).
 - **Qué va en cada movimiento depende de si es ingreso o egreso**, como en
   los ejemplos de la documentación de Visec:
 
   | Ejemplo de Visec | RENSPA | CTG asignado | Carga por UP | Descarga y stock |
   |---|---|---|---|---|
   | A – ingreso desde unidad productiva | sí | — | — | sí |
-  | B – egreso de un sitio | — | sí | sí | — |
+  | B – egreso de un sitio | — | ~~sí~~ no hace falta | sí | — |
   | C – ingreso desde otro sitio | — | — | — | sí |
 
   Los ingresos a planta son el caso A o C: **no van ni el CTG asignado ni la
@@ -915,6 +917,46 @@ habilitadas. En producción sí (consulta de sucursales del 04/11/2026):
 Y la unidad productiva de esa CPE (`01.082.0.00493/05`, "El Arapey", de La
 Tranquera Verde) está dada de alta en producción, así que allá pasaría.
 
+### Egresos
+
+Salen de `EGRESOS_PLANTAS` y van con `tipoMovimiento` 2. Se encienden con
+`VISEC_API_EGRESOS=true`; apagados, la corrida por fechas y la automática no
+los leen, pero con **CTG puntuales** en la pantalla se buscan igual, para
+poder probarlos antes.
+
+**Visec resuelve la traza.** El ejemplo B de la documentación lleva
+`numeroCTGAsignado` (de qué entradas sale cada camión), y el ERP no lo
+registra: medido sobre un año de soja 38, 235 egresos y ninguno con
+`EPL_CTG_PROCEDENCIA`, ingreso vinculado, RENSPA ni silo. Visec contestó
+(05/11/2026) que en el caso de Rivara esa asignación la hace su sistema solo:
+no hace falta el CTG asignado ni informar la traza después con
+`ProcesoImportacionActualizacionRENSPA`, y el egreso se informa en el momento.
+
+| Visec | ERP |
+|---|---|
+| `numeroCTG` | `EPL_CTG` |
+| `fechaHoraMovimiento` | `EPL_FECHA_HORA_BRUTO` (es "fecha de carga" para egresos; `EPL_FECHA_DEL_MOVIMIENTO` viene vacía) |
+| `pesoNetoCargaKgPorUP` | `EPL_PESO_MERCADERIA` (igual a `EPL_KILOS_NETOS_SALIDA`) |
+| RUCA origen y destino, CUITs, producto, campaña | ARCA |
+
+`EPL_TIPO_EGRESO` es **P** retiro de productor (229 en el año) o **C** contrato
+de venta (6). Van los dos.
+
+**Se informan en el momento**, como pidió Visec: con la CPE *activa* en ARCA
+(también CF, CO, CN, DD), porque el peso es el de nuestra balanza al cargar y ya
+es definitivo. Nunca una anulada, rechazada, desactivada o borrador: esas
+quedan esperando a ARCA. Un egreso pide RUCA de origen (sale de una planta
+nuestra) y no pide RENSPA.
+
+**Ingreso y egreso del mismo CTG son dos movimientos.** Pasa con un traslado
+entre plantas propias: sale de una y entra a otra con la misma CPE. En
+`estado.json` el ingreso va con el CTG solo y el egreso como `CTG-egreso`, y se
+mandan en procesos separados, así el resultado de uno no se confunde con el
+del otro. El reintento de la pantalla trabaja con esa clave.
+
+`JP` necesita `SELECT` sobre `EGRESOS_PLANTAS` en los tres esquemas. Si falta,
+la corrida avisa y sigue con los ingresos.
+
 ### En Visec: sucursales y unidades productivas
 
 La API exige que el RUCA de destino y el RENSPA de cada unidad productiva estén
@@ -929,7 +971,11 @@ más que los datos estén bien.
 3. Lo mismo tildando: lo manda a staging.
 4. **Correr ahora** otra vez, sin nada: pregunta el resultado del proceso.
 
-Cuando eso salga bien con algunas CPE, `VISEC_API_AUTOMATICO=true`.
+Para un egreso, lo mismo con el CTG de un egreso: aunque
+`VISEC_API_EGRESOS` esté apagado, con CTG puntuales se busca.
+
+Cuando eso salga bien con algunas CPE, `VISEC_API_AUTOMATICO=true`, y
+`VISEC_API_EGRESOS=true` cuando los egresos también.
 
 **El automático informa el día a día; lo atrasado se manda a mano.** La
 ventana mira los últimos `VISEC_API_VENTANA_DIAS` y la fecha inicial solo la

@@ -43,6 +43,7 @@
       {{ r.procesos.get(E.ENVIADA, 0) }} todavía en proceso.
     </p>
   {% endif %}
+  {% for aviso in r.avisos %}<p class="rv-nota rv-nota--info">{{ aviso }}</p>{% endfor %}
   {% if r.incompleta %}
     <p class="rv-nota rv-nota--info">
       Quedaron más CPE que el límite por corrida (<code>VISEC_API_LIMITE</code>):
@@ -63,14 +64,16 @@
   <div class="ic-tabla-scroll">
     <table class="rv-tabla">
       <thead>
-        <tr><th>CTG</th><th>Sociedad</th><th>RUCA destino</th><th>RENSPA</th>
-            <th class="rv-num">Kilos a stock</th><th>Estado</th><th>Detalle</th></tr>
+        <tr><th>CTG</th><th>Tipo</th><th>Sociedad</th><th>RUCA origen</th><th>RUCA destino</th>
+            <th>RENSPA</th><th class="rv-num">Kilos</th><th>Estado</th><th>Detalle</th></tr>
       </thead>
       <tbody>
         {% for f in r.filas %}
         <tr>
           <td class="rv-num">{{ f.ctg }}</td>
+          <td>{{ f.tipo_nombre }}</td>
           <td>{{ f.sociedad or '—' }}</td>
+          <td class="rv-num">{{ f.ruca_origen or '—' }}</td>
           <td class="rv-num">{{ f.ruca_destino or '—' }}</td>
           <td>{{ f.renspa or '—' }}</td>
           <td class="rv-num">{{ f.kilos or '—' }}</td>
