@@ -798,6 +798,18 @@ Mismo contrato, distinto host y distinto scope del token. Se elige con
 `VISEC_API_AMBIENTE=stg|prd`, y **las credenciales son distintas en cada
 uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
 
+**Cada ambiente tiene su propio estado** (`estado_stg.json`, `estado_prd.json`),
+y también su última corrida automática. Si fuera uno solo, lo que pasó en
+staging valdría en producción: una CPE rechazada en staging no se mandaría, y
+una registrada en staging se saltearía para siempre en producción. El
+`estado.json` de antes de separarlos era todo de staging: la primera vez pasa
+solo a `estado_stg.json`. Las respuestas guardadas llevan el ambiente en el
+nombre del archivo.
+
+Para pasar a producción, antes de recrear el contenedor:
+`VISEC_API_AUTOMATICO=false`. Si quedara encendido, al minuto y medio de
+arrancar mandaría a producción todo lo de la ventana, sin que nadie lo mire.
+
 ### Qué se manda, y qué no
 
 - **Un ingreso, solo si ARCA ya lo confirmó o descargó (CN, DD).** Con el XLSX
@@ -835,7 +847,7 @@ uno**. Arranca en staging, y la pantalla lo muestra arriba a la derecha.
 Cada corrida, primero pregunta el resultado de los procesos que quedaron
 esperando, y después busca lo nuevo. Mira los últimos `VISEC_API_VENTANA_DIAS`
 días (nunca antes de `VISEC_API_FECHA_INICIAL`); lo ya registrado se saltea por
-el estado local, en `/storage/informarcpe/visec_api/estado.json`. No hay fecha
+el estado local, en `/storage/informarcpe/visec_api/estado_<ambiente>.json`. No hay fecha
 de corte como en BolsaTech: la ventana móvil hace que una CPE que tarda en
 confirmarse en ARCA no se pierda.
 

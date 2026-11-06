@@ -40,9 +40,31 @@ from .wscpe import Consulta
 log = logging.getLogger(__name__)
 
 VISEC_API_DIR = Path(os.getenv("VISEC_API_DIR", "/data/visec_api"))
-ESTADO = VISEC_API_DIR / "estado.json"
 RESPUESTAS_DIR = VISEC_API_DIR / "respuestas"
-ULTIMA_AUTOMATICA = VISEC_API_DIR / "ultima_automatica.json"
+# El estado de cada CTG es por ambiente. Si fuera uno solo, lo que pasó en
+# staging valdría en producción: una CPE rechazada en staging no se mandaría, y
+# una registrada en staging se saltearía para siempre en producción.
+ESTADO_VIEJO = VISEC_API_DIR / "estado.json"   # de antes de separarlos: era staging
+
+
+def _archivo_estado() -> Path:
+    return VISEC_API_DIR / f"estado_{config.visec_api_ambiente}.json"
+
+
+def _archivo_ultima_automatica() -> Path:
+    return VISEC_API_DIR / f"ultima_automatica_{config.visec_api_ambiente}.json"
+
+
+def _migrar_estado_viejo() -> None:
+    """Hasta que hubo dos ambientes, todo iba a estado.json, y todo era de
+    staging. Se pasa una vez a estado_stg.json; producción arranca de cero."""
+    nuevo = VISEC_API_DIR / "estado_stg.json"
+    if ESTADO_VIEJO.is_file() and not nuevo.exists():
+        try:
+            ESTADO_VIEJO.replace(nuevo)
+            log.info("Estado de VISEC: %s pasó a %s", ESTADO_VIEJO.name, nuevo.name)
+        except OSError as error:
+            log.warning("No se pudo pasar %s a %s: %s", ESTADO_VIEJO, nuevo, error)
 FORMATO = "%Y-%m-%d %H:%M:%S"
 
 # fechaHoraMovimiento va SIN zona horaria, en hora argentina. Es lo único que
@@ -181,7 +203,7 @@ def _guardar_respuesta(ruta: str, cuerpo: dict, status: int, datos: Any) -> None
         RESPUESTAS_DIR.mkdir(parents=True, exist_ok=True)
         marca = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         nombre = ruta.strip("/").replace("/", "_")
-        (RESPUESTAS_DIR / f"{marca}_{nombre}.json").write_text(
+        (RESPUESTAS_DIR / f"{marca}_{config.visec_api_ambiente}_{nombre}.json").write_text(
             json.dumps({"ambiente": config.visec_api_ambiente, "ruta": ruta, "status": status,
                         "pedido": cuerpo, "respuesta": datos},
                        ensure_ascii=False, indent=1, default=str),
@@ -398,10 +420,12 @@ _candado_estado = threading.Lock()
 
 
 def estado() -> dict[str, dict]:
-    if not ESTADO.is_file():
+    _migrar_estado_viejo()
+    archivo = _archivo_estado()
+    if not archivo.is_file():
         return {}
     try:
-        return json.loads(ESTADO.read_text(encoding="utf-8"))
+        return json.loads(archivo.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         log.warning("No se pudo leer el estado de VISEC: %s", error)
         return {}
@@ -409,10 +433,11 @@ def estado() -> dict[str, dict]:
 
 def _guardar_estado(datos: dict) -> None:
     VISEC_API_DIR.mkdir(parents=True, exist_ok=True)
-    temporal = ESTADO.with_suffix(".tmp")
+    archivo = _archivo_estado()
+    temporal = archivo.with_suffix(".tmp")
     temporal.write_text(json.dumps(datos, ensure_ascii=False, indent=1, sort_keys=True),
                         encoding="utf-8")
-    temporal.replace(ESTADO)
+    temporal.replace(archivo)
 
 
 def anotar(cambios: dict[str, dict]) -> None:
@@ -711,18 +736,20 @@ def anotar_automatica(resumen: dict | None = None, error: str = "") -> None:
                      procesos=resumen.get("procesos", {}))
     try:
         VISEC_API_DIR.mkdir(parents=True, exist_ok=True)
-        temporal = ULTIMA_AUTOMATICA.with_suffix(".tmp")
+        archivo = _archivo_ultima_automatica()
+        temporal = archivo.with_suffix(".tmp")
         temporal.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
-        temporal.replace(ULTIMA_AUTOMATICA)
+        temporal.replace(archivo)
     except OSError as error_io:
         log.warning("No se pudo anotar la corrida automática de VISEC: %s", error_io)
 
 
 def ultima_automatica() -> dict | None:
-    if not ULTIMA_AUTOMATICA.is_file():
+    archivo = _archivo_ultima_automatica()
+    if not archivo.is_file():
         return None
     try:
-        datos = json.loads(ULTIMA_AUTOMATICA.read_text(encoding="utf-8"))
+        datos = json.loads(archivo.read_text(encoding="utf-8"))
         datos["momento"] = datetime.strptime(datos["cuando"], FORMATO)
         return datos
     except (OSError, ValueError, KeyError):
