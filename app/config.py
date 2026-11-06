@@ -224,6 +224,12 @@ class Config:
     # como el automático: se encienden después de probarlos. Con CTG puntuales
     # se buscan igual, para poder probarlos antes de encenderlos.
     visec_api_egresos: bool = _bool("VISEC_API_EGRESOS", False)
+    # Plantas (RUCA) que todavía no se informan. 15125 = Planta Silo Acceso
+    # Alberti (los movimientos que empiezan con 16): pedido de Rivara,
+    # 06/11/2026, "por ahora". Revisar cada tanto si ya la incluyen.
+    visec_api_rucas_excluidos: set[int] = field(default_factory=lambda: {
+        int(r) for r in os.getenv("VISEC_API_RUCAS_EXCLUIDOS", "15125").split(",") if r.strip().isdigit()
+    })
     # Corrida automática, apagada por omisión. En minutos, no en horas: VISEC
     # quiere el movimiento cerca de cuando pasa.
     visec_api_automatico: bool = _bool("VISEC_API_AUTOMATICO", False)

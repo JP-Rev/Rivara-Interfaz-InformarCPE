@@ -93,6 +93,13 @@
     ({{ periodo[2] }}), especie {{ especies | join(', ') }}. Lo ya registrado se saltea.
   </p>
   {% endif %}
+  {% if rucas_excluidos %}
+  <p class="rv-meta">
+    No se informa{{ 'n' if rucas_excluidos | length > 1 else '' }} todavía:
+    <strong>{{ rucas_excluidos | join(', ') }}</strong> (<code>VISEC_API_RUCAS_EXCLUIDOS</code>).
+    Revisar cada tanto si ya corresponde incluirla.
+  </p>
+  {% endif %}
   <p class="rv-meta">
     {% if egresos %}
       Informa <strong>ingresos y egresos</strong>.
@@ -171,7 +178,8 @@
     (E.ENVIADA, 'Esperando el resultado de Visec', 'Visec las recibió y las está procesando. La próxima corrida pregunta el resultado.'),
     (E.ESPERANDO_ARCA, 'Esperando a ARCA', 'Todavía no están confirmadas ni descargadas en ARCA, así que los pesos pueden cambiar. Se mandan solas cuando ARCA las confirme.'),
     (E.FALTAN_DATOS, 'Con datos faltantes', 'Les falta algo obligatorio. Se vuelven a intentar en cada corrida, por si el dato aparece.'),
-    (E.ERROR, 'Con error', 'Algo técnico: red, ARCA o Visec no respondieron. Se reintentan solas.')] %}
+    (E.ERROR, 'Con error', 'Algo técnico: red, ARCA o Visec no respondieron. Se reintentan solas.'),
+    (E.EXCLUIDA, 'De plantas que todavía no se informan', 'Cuando la planta se saque de VISEC_API_RUCAS_EXCLUIDOS vuelven solas a la cola.')] %}
   {% if pendientes[clave] %}
   <div class="rv-card ic-tarjeta">
     <details class="ic-plegable">

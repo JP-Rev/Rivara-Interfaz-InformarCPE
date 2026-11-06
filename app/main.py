@@ -1162,7 +1162,7 @@ async def correr_bolsatech(request: Request, confirmo: str = Form(""),
 def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, **extra):
     datos = visec_api.estado()
     pendientes = {e: [] for e in (visec_api.RECHAZADA, visec_api.ENVIADA, visec_api.FALTAN_DATOS,
-                                  visec_api.ESPERANDO_ARCA, visec_api.ERROR)}
+                                  visec_api.ESPERANDO_ARCA, visec_api.ERROR, visec_api.EXCLUIDA)}
     for k, d in sorted(datos.items(), key=lambda x: x[1].get("cuando", ""), reverse=True):
         if d.get("estado") in pendientes:
             tipo = visec_api.tipo_de(k, d)
@@ -1182,6 +1182,7 @@ def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, *
                   cada_minutos=config.visec_api_cada_minutos,
                   ventana_dias=config.visec_api_ventana_dias,
                   egresos=config.visec_api_egresos,
+                  rucas_excluidos=sorted(config.visec_api_rucas_excluidos),
                   especies=config.visec_api_especies,
                   periodo=periodo, ultima=ultima,
                   proxima=(ultima["momento"] + timedelta(minutes=max(config.visec_api_cada_minutos, 1)))

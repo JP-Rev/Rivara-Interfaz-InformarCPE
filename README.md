@@ -931,6 +931,17 @@ habilitadas. En producción sí (consulta de sucursales del 04/11/2026):
 Y la unidad productiva de esa CPE (`01.082.0.00493/05`, "El Arapey", de La
 Tranquera Verde) está dada de alta en producción, así que allá pasaría.
 
+### Plantas que todavía no se informan
+
+`VISEC_API_RUCAS_EXCLUIDOS=15125`: la **Planta Silo Acceso Alberti** (los
+movimientos que empiezan con 16) no se informa **por ahora**, pedido de Rivara
+del 06/11/2026. Se filtra por el RUCA de ARCA: el de destino en un ingreso, el
+de origen en un egreso. Esos movimientos quedan como *excluidos*, a la vista
+en la pantalla, y **vuelven solos a la cola** cuando la planta se saca de la
+lista (los de la ventana; lo anterior, con *Desde/Hasta*).
+
+**Revisar cada tanto si ya corresponde incluirla.** La pantalla lo recuerda.
+
 ### Egresos
 
 Salen de `EGRESOS_PLANTAS` y van con `tipoMovimiento` 2. Se encienden con

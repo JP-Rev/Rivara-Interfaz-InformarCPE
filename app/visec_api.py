@@ -83,6 +83,7 @@ ENVIADA = "enviada"                # está en un proceso, falta el resultado
 ESPERANDO_ARCA = "esperando_arca"  # ARCA todavía no la confirmó: se reintenta
 FALTAN_DATOS = "faltan_datos"      # le falta algo obligatorio: se reintenta
 ERROR = "error"                    # algo técnico (red, ARCA caído): se reintenta
+EXCLUIDA = "excluida"              # de una planta que todavía no se informa
 
 # El tipoMovimiento de Visec. Lo da la tabla de origen: INGRESOS_PLANTAS o
 # EGRESOS_PLANTAS.
@@ -693,8 +694,14 @@ def _corrida(enviar_de_verdad, desde, hasta, ctgs) -> dict:
     resumen["encontradas"] = len(unicas)
 
     ya = estado()
-    candidatas = [(k, f) for k, f in unicas.items()
-                  if ya.get(k, {}).get("estado") not in NO_REINTENTAR]
+    def pendiente(k: str) -> bool:
+        d = ya.get(k, {})
+        if d.get("estado") == EXCLUIDA:
+            # Vuelve sola a la cola cuando su planta deja de estar excluida.
+            return d.get("ruca") not in config.visec_api_rucas_excluidos
+        return d.get("estado") not in NO_REINTENTAR
+
+    candidatas = [(k, f) for k, f in unicas.items() if pendiente(k)]
     limite = max(config.visec_api_limite, 1)
     resumen["incompleta"] = len(candidatas) > limite
     resumen["ya_resueltas"] = len(unicas) - len(candidatas)
@@ -725,6 +732,15 @@ def _corrida(enviar_de_verdad, desde, hasta, ctgs) -> dict:
             resumen["filas"].append({**base, "estado": ESPERANDO_ARCA, "detalle": motivo})
             continue
         cuerpo, faltan, _ = armar(consulta, propios_de(fila))
+        # La planta nuestra del movimiento: destino si entra, origen si sale.
+        ruca = cuerpo.get("numeroRUCAOrigen" if tipo == EGRESO else "numeroRUCADestino")
+        if ruca in config.visec_api_rucas_excluidos:
+            motivo = f"La planta {ruca} todavía no se informa (VISEC_API_RUCAS_EXCLUIDOS)"
+            cambios[k] = {**identidad, "estado": EXCLUIDA, "detalle": motivo, "ruca": ruca}
+            resumen["filas"].append({**base, "estado": EXCLUIDA, "detalle": motivo,
+                                     "ruca_destino": cuerpo.get("numeroRUCADestino"),
+                                     "ruca_origen": cuerpo.get("numeroRUCAOrigen")})
+            continue
         if faltan:
             motivo = "; ".join(faltan)
             cambios[k] = {**identidad, "estado": FALTAN_DATOS, "detalle": motivo, "estado_arca": codigo}
