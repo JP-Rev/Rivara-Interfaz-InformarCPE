@@ -931,6 +931,27 @@ habilitadas. En producción sí (consulta de sucursales del 04/11/2026):
 Y la unidad productiva de esa CPE (`01.082.0.00493/05`, "El Arapey", de La
 Tranquera Verde) está dada de alta en producción, así que allá pasaría.
 
+### Definiciones que pueden cambiar
+
+Criterios de Rivara vigentes **a noviembre de 2026**. No los impone Visec: son
+decisiones que pueden cambiar según lo que pidan. Si cambia alguno, se toca en
+el lugar indicado y se actualiza esta tabla.
+
+| Campo de Visec | Hoy es | De dónde sale | Dónde se cambia |
+|---|---|---|---|
+| `pesoNetoCargaKg` (ingreso) | **el estimado** | `IPL_KILOS_ESTIMADOS` ("Netos Estimados" del ERP); si está vacío, bruto − tara de la CPE en ARCA | `visec_api._peso_carga_cpe` |
+| `pesoNetoDescargaKgPorUP` (ingreso) | **bruto − tara** | `IPL_PESO_NETO`; si está vacío, bruto − tara de descarga en ARCA | `visec.armar_fila` → `peso_stock` |
+| `pesoIngresoStockKg` (ingreso) | **bruto − tara** | `IPL_PESO_NETO`; si está vacío, bruto − tara de descarga en ARCA | `visec.armar_fila` → `peso_stock` |
+| `pesoNetoCargaKgPorUP` (ingreso) | no va | — (ejemplo A de Visec) | `visec_api.armar` |
+| `pesoNetoCargaKg` (egreso) | bruto − tara de la CPE | ARCA (nuestra balanza al cargar) | `visec_api._peso_carga_cpe` |
+| `pesoNetoCargaKgPorUP` (egreso) | peso que salió | `EPL_PESO_MERCADERIA` | `visec_api.armar` |
+| Plantas que no se informan | 15125 | `VISEC_API_RUCAS_EXCLUIDOS` | `.env` |
+
+Descarga por UP y stock salen de la misma función que llena el XLSX
+(`visec.armar_fila`). Si alguno de los dos tuviera que cambiar **solo para la
+API**, hay que pisarlo en `visec_api.armar` y no en `armar_fila`, para no
+cambiar la planilla.
+
 ### Plantas que todavía no se informan
 
 `VISEC_API_RUCAS_EXCLUIDOS=15125`: la **Planta Silo Acceso Alberti** (los
