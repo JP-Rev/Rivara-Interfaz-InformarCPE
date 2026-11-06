@@ -830,7 +830,9 @@ arrancar mandaría a producción todo lo de la ventana, sin que nadie lo mire.
   Rivara") y la carga por UP de `IPL_KILOS_ESTIMADOS`; por API, Visec rechaza
   lo primero, y lo segundo sería un estimado (30.000 contra 22.235 reales en la
   primera prueba). El peso real va en descarga y en stock. La carga de la CPE
-  (`pesoNetoCargaKg`) sí va, y es la de ARCA: es el dato del documento.
+  (`pesoNetoCargaKg`) sí va: en un ingreso, los "Netos Estimados" del ERP
+  (`IPL_KILOS_ESTIMADOS`), por decisión de Rivara; si el ERP no los tiene, el
+  de ARCA (bruto − tara). En un egreso, el de ARCA, que es nuestra balanza.
 - **Lo que tenga 0 no va.** ARCA da `planta 0` cuando el origen es un productor,
   y un RUCA 0 Visec lo rechaza. Lo mismo para producto y pesos.
 - **Si falta algo obligatorio, no se manda**: queda *con datos faltantes* y se

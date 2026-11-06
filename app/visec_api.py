@@ -335,6 +335,18 @@ def propios_de(fila: dict) -> dict[str, Any]:
     }
 
 
+def _peso_carga_cpe(v: dict, propios: dict, egreso: bool) -> str:
+    """pesoNetoCargaKg. En un ingreso, los "Netos Estimados" que carga el
+    operario en el ERP (IPL_KILOS_ESTIMADOS): decisión de Rivara (06/11/2026).
+    Si el ERP no lo tiene, el de la carta de porte en ARCA (bruto − tara). En
+    un egreso, el de ARCA, que es el de nuestra balanza al cargar."""
+    if not egreso:
+        estimados = _positivo(propios.get("kilos_estimados"))
+        if estimados:
+            return str(estimados)
+    return v["Peso Neto Carga (Kg)"]
+
+
 def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fila]:
     """(JSON de la CPE, lo que falta, fila de Visec). Si falta algo, no se manda."""
     fila = visec.armar_fila(consulta, propios)
@@ -394,7 +406,7 @@ def armar(consulta: Consulta, propios: dict) -> tuple[dict, list[str], visec.Fil
         "numeroRUCADestino": _positivo(v["Número RUCA Destino"]),
         "producto": _positivo(v["Código Producto"]),
         "campania": _campania(v["Campaña"]),
-        "pesoNetoCargaKg": v["Peso Neto Carga (Kg)"],
+        "pesoNetoCargaKg": _peso_carga_cpe(v, propios, egreso),
     })
     carta["movimientoMercaderiaUP"] = [movimiento]
 
