@@ -992,6 +992,29 @@ Para mirar un resultado sin mandar nada está el botón **Consultar
 resultados**, que aparece cuando hay CPE enviadas esperando a Visec. Pregunta
 cómo terminaron y no manda ninguna CPE.
 
+### Descargar el JSON, para que Visec lo revise
+
+Cada llamada queda guardada en `visec_api/respuestas/`, con el cuerpo exacto
+que salió y lo que contestó Visec (el token va en las cabeceras, así que ahí
+no queda ningún secreto). Desde la pantalla se descargan sin entrar al
+servidor:
+
+- **En el resultado de una corrida**, por CTG: *Enviado* (el cuerpo tal cual
+  lo recibió Visec) y *Respuesta*.
+- **En la vista previa**, antes de mandar: *Descargar el JSON que se
+  mandaría*. Se arma en el servidor igual que el envío y en el mismo orden,
+  así que es exactamente lo que va a viajar. Sirve para que Visec revise una
+  CPE sin tener que mandarla.
+- **En las rechazadas**: el envío y el *Resultado* del proceso, que es donde
+  está el motivo.
+- **Lo enviado a Visec**, al final de la pantalla: los últimos 30 envíos y
+  consultas del ambiente actual, cada uno con sus dos descargas.
+
+Los archivos bajan con un nombre que dice qué son, por ejemplo
+`visec_prd_20261106_094152_envio_proceso5001_ctg10235935757_enviado.json`, para
+adjuntarlos sin renombrar. La descarga solo sirve archivos de esa carpeta con
+ese formato de nombre: no se puede usar para leer otra cosa del servidor.
+
 ### En Visec: sucursales y unidades productivas
 
 La API exige que el RUCA de destino y el RENSPA de cada unidad productiva estén

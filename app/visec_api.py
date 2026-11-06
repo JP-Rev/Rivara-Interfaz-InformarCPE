@@ -167,6 +167,7 @@ def _llamar(ruta: str, cuerpo: dict) -> tuple[int, Any]:
     """POST a la API. Devuelve (status, respuesta). Un 400 no es excepción:
     es VISEC diciendo qué está mal en los datos, y lo decide quien llama."""
     url = config.visec_api_urls["url"] + ruta
+    _hilo.ultimo_archivo = ""
     for intento in (1, 2):
         cabeceras = {
             "Authorization": f"Bearer {token(renovar=intento == 2)}",
@@ -196,20 +197,33 @@ def _llamar(ruta: str, cuerpo: dict) -> tuple[int, Any]:
     raise ErrorVisecApi(f"VISEC respondió HTTP {r.status_code} en {ruta}: {_texto_error(datos)}")
 
 
-def _guardar_respuesta(ruta: str, cuerpo: dict, status: int, datos: Any) -> None:
+# El archivo donde quedó la última llamada de este hilo, para que enviar() y
+# revisar_procesos() lo anoten junto a cada CTG y se pueda descargar después.
+_hilo = threading.local()
+
+
+def _guardar_respuesta(ruta: str, cuerpo: dict, status: int, datos: Any) -> str:
     """Pedido y respuesta, que es lo único que queda si hay que reclamar algo.
-    El token va en las cabeceras, no acá: no se guarda ningún secreto."""
+    El token va en las cabeceras, no acá: no se guarda ningún secreto.
+    Devuelve el nombre del archivo ("" si no se pudo guardar)."""
     try:
         RESPUESTAS_DIR.mkdir(parents=True, exist_ok=True)
         marca = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        nombre = ruta.strip("/").replace("/", "_")
-        (RESPUESTAS_DIR / f"{marca}_{config.visec_api_ambiente}_{nombre}.json").write_text(
+        nombre = f"{marca}_{config.visec_api_ambiente}_{ruta.strip('/').replace('/', '_')}.json"
+        (RESPUESTAS_DIR / nombre).write_text(
             json.dumps({"ambiente": config.visec_api_ambiente, "ruta": ruta, "status": status,
                         "pedido": cuerpo, "respuesta": datos},
                        ensure_ascii=False, indent=1, default=str),
             encoding="utf-8")
     except OSError as error:
         log.warning("No se pudo guardar la respuesta de VISEC: %s", error)
+        nombre = ""
+    _hilo.ultimo_archivo = nombre
+    return nombre
+
+
+def _ultimo_archivo() -> str:
+    return getattr(_hilo, "ultimo_archivo", "")
 
 
 def _texto_error(datos: Any) -> str:
@@ -486,15 +500,17 @@ def enviar(cpes: list[tuple[str, dict]]) -> dict[str, dict]:
         return {}
     status, datos = _llamar(RUTA_ALTA, {"cuitEmpresa": config.visec_api_cuit,
                                         "cartaPorte": [cuerpo for _, cuerpo in cpes]})
+    archivo = _ultimo_archivo()
     datos_ci = _minusculas(datos)
     if status == 200 and isinstance(datos_ci, dict) and datos_ci.get("numero"):
         numero = int(datos_ci["numero"])
         log.info("VISEC: proceso %s con %s CPE", numero, len(cpes))
-        return {ctg: {"estado": ENVIADA, "proceso": numero, "detalle": "", "enviando": True}
+        return {ctg: {"estado": ENVIADA, "proceso": numero, "detalle": "", "enviando": True,
+                      "archivo_envio": archivo, "archivo_resultado": ""}
                 for ctg, _ in cpes}
     if status == 200:
         motivo = f"VISEC respondió 200 sin número de proceso: {_texto_error(datos)}"
-        return {ctg: {"estado": ERROR, "detalle": motivo} for ctg, _ in cpes}
+        return {ctg: {"estado": ERROR, "detalle": motivo, "archivo_envio": archivo} for ctg, _ in cpes}
     if len(cpes) > 1:
         log.info("VISEC rechazó un lote de %s; se manda de a una", len(cpes))
         resultado: dict[str, dict] = {}
@@ -502,7 +518,9 @@ def enviar(cpes: list[tuple[str, dict]]) -> dict[str, dict]:
             resultado.update(enviar([una]))
         return resultado
     ctg = cpes[0][0]
-    return {ctg: {"estado": RECHAZADA, "detalle": _texto_error(datos), "enviando": True}}
+    # Rechazada en la prevalidación: el motivo está en la respuesta al envío.
+    return {ctg: {"estado": RECHAZADA, "detalle": _texto_error(datos), "enviando": True,
+                  "archivo_envio": archivo, "archivo_resultado": archivo}}
 
 
 def consultar_proceso(numero: int) -> tuple[int, Any]:
@@ -530,6 +548,7 @@ def revisar_procesos() -> dict[str, int]:
             log.warning("Proceso %s: HTTP %s %s", numero, status, _texto_error(datos))
             conteo[ENVIADA] += len(ctgs)
             continue
+        archivo = _ultimo_archivo()
         datos = _minusculas(datos)
         detalles = [d for d in datos.get("detalles") or [] if isinstance(d, dict)]
         procesados = int(datos.get("documentosprocesados") or 0)
@@ -545,7 +564,7 @@ def revisar_procesos() -> dict[str, int]:
             if detalle is None:
                 conteo[ENVIADA] += 1
                 if terminado:
-                    cambios[ctg] = {"estado": ENVIADA,
+                    cambios[ctg] = {"estado": ENVIADA, "archivo_resultado": archivo,
                                     "detalle": f"El proceso {numero} terminó ({descripcion_proceso}) "
                                                "pero no trae resultado para este CTG"}
                 continue
@@ -555,15 +574,16 @@ def revisar_procesos() -> dict[str, int]:
             descripcion = str(estado_detalle.get("descripcion") or "")
             id_detalle = estado_detalle.get("id")
             if errores or id_detalle == DETALLE_ERROR or PALABRAS_DE_RECHAZO.search(descripcion):
-                cambios[ctg] = {"estado": RECHAZADA,
+                cambios[ctg] = {"estado": RECHAZADA, "archivo_resultado": archivo,
                                 "detalle": " · ".join(errores) or descripcion,
                                 "estado_visec": descripcion}
                 conteo[RECHAZADA] += 1
             elif id_detalle == DETALLE_OK or descripcion.upper() == "OK" or terminado:
-                cambios[ctg] = {"estado": REGISTRADA, "detalle": "", "estado_visec": descripcion}
+                cambios[ctg] = {"estado": REGISTRADA, "detalle": "", "estado_visec": descripcion,
+                                "archivo_resultado": archivo}
                 conteo[REGISTRADA] += 1
             else:
-                cambios[ctg] = {"estado": ENVIADA, "estado_visec": descripcion,
+                cambios[ctg] = {"estado": ENVIADA, "estado_visec": descripcion, "archivo_resultado": archivo,
                                 "detalle": f"Procesando: {descripcion_proceso}"}
                 conteo[ENVIADA] += 1
     if cambios:
@@ -729,6 +749,8 @@ def _corrida(enviar_de_verdad, desde, hasta, ctgs) -> dict:
                 f["estado"] = cambios[f["clave"]]["estado"]
                 f["detalle"] = cambios[f["clave"]].get("detalle", "")
                 f["proceso"] = cambios[f["clave"]].get("proceso")
+                f["archivo_envio"] = cambios[f["clave"]].get("archivo_envio", "")
+                f["archivo_resultado"] = cambios[f["clave"]].get("archivo_resultado", "")
 
     for f in resumen["filas"]:
         resumen["por_estado"][f["estado"]] = resumen["por_estado"].get(f["estado"], 0) + 1
@@ -765,3 +787,111 @@ def ultima_automatica() -> dict | None:
         return datos
     except (OSError, ValueError, KeyError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Lo enviado: para descargar el JSON exacto de cada envío y su respuesta
+# ---------------------------------------------------------------------------
+
+# Los nombres que escribe _guardar_respuesta. Los de antes de que llevaran el
+# ambiente no lo tienen. Nada que no cumpla esto se lee, así la descarga no
+# puede usarse para pedir otro archivo del servidor.
+ARCHIVO_VALIDO = re.compile(r"\d{8}_\d{6}_\d{6}_(?:(?:stg|prd)_)?[A-Za-z_]+\.json")
+PARTES = ("pedido", "respuesta", "completo")
+
+
+def leer_enviado(nombre: str) -> dict | None:
+    if not ARCHIVO_VALIDO.fullmatch(nombre or ""):
+        return None
+    ruta = RESPUESTAS_DIR / nombre
+    try:
+        if ruta.resolve().parent != RESPUESTAS_DIR.resolve() or not ruta.is_file():
+            return None
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return datos if isinstance(datos, dict) else None
+
+
+def describir_enviado(nombre: str, datos: dict) -> dict:
+    """Una línea legible de un archivo de respuestas: qué fue, de qué CTG,
+    qué proceso y cómo terminó."""
+    ruta, status = datos.get("ruta", ""), datos.get("status")
+    pedido = datos.get("pedido") if isinstance(datos.get("pedido"), dict) else {}
+    respuesta = _minusculas(datos.get("respuesta"))
+    try:
+        fecha = datetime.strptime(nombre[:15], "%Y%m%d_%H%M%S")
+    except ValueError:
+        fecha = None
+    ctgs: list[str] = []
+    tipos: set[str] = set()
+    proceso, resultado = None, ""
+    if ruta == RUTA_ALTA:
+        que = "Envío"
+        for carta in pedido.get("cartaPorte") or []:
+            ctgs.append(str(carta.get("numeroCTG") or "").lstrip("0"))
+            for mov in carta.get("movimientoMercaderiaUP") or []:
+                tipos.add(NOMBRE_TIPO.get(mov.get("tipoMovimiento"), ""))
+        proceso = respuesta.get("numero") if isinstance(respuesta, dict) else None
+        resultado = f"Aceptado: proceso {proceso}" if status == 200 and proceso \
+            else f"Rechazado: {_texto_error(datos.get('respuesta'))}"
+    elif ruta == RUTA_PROCESO:
+        que = "Resultado"
+        proceso = pedido.get("numeroProceso")
+        if status == 200 and isinstance(respuesta, dict):
+            partes = [str(respuesta.get("descripcionestado") or "")]
+            for d in respuesta.get("detalles") or []:
+                if not isinstance(d, dict):
+                    continue
+                ctgs.append(str(d.get("numeroctg") or "").lstrip("0"))
+                partes += [str(e.get("observaciones") or e.get("codigoerror") or "")
+                           for e in d.get("errores") or [] if isinstance(e, dict)]
+            resultado = " · ".join(p for p in partes if p)
+        else:
+            resultado = _texto_error(datos.get("respuesta"))
+    else:
+        que = ruta.strip("/")
+        resultado = f"HTTP {status}"
+    return {"nombre": nombre, "fecha": fecha, "que": que, "ctgs": ctgs,
+            "tipo": ", ".join(sorted(t for t in tipos if t)), "proceso": proceso,
+            "status": status, "resultado": resultado, "ambiente": datos.get("ambiente", "")}
+
+
+def enviados(limite: int = 30) -> list[dict]:
+    """Lo último que se le mandó y preguntó a Visec en el ambiente actual."""
+    if not RESPUESTAS_DIR.is_dir():
+        return []
+    otro = {"stg": "_prd_", "prd": "_stg_"}.get(config.visec_api_ambiente, "")
+    nombres = sorted((n for n in os.listdir(RESPUESTAS_DIR)
+                      if ARCHIVO_VALIDO.fullmatch(n) and not (otro and otro in n[:30])),
+                     reverse=True)
+    salida = []
+    for nombre in nombres:
+        if len(salida) >= limite:
+            break
+        datos = leer_enviado(nombre)
+        if datos and datos.get("ambiente") == config.visec_api_ambiente:
+            salida.append(describir_enviado(nombre, datos))
+    # La consulta de un proceso no dice si era de ingresos o de egresos: sale
+    # del envío de ese mismo proceso, si está en la lista.
+    tipo_de_proceso = {e["proceso"]: e["tipo"] for e in salida if e["que"] == "Envío" and e["proceso"]}
+    for e in salida:
+        if not e["tipo"] and e["proceso"] in tipo_de_proceso:
+            e["tipo"] = tipo_de_proceso[e["proceso"]]
+    return salida
+
+
+def nombre_descarga(nombre: str, datos: dict, parte: str) -> str:
+    """Un nombre que diga qué es, para mandárselo a Visec sin renombrar:
+    visec_prd_20261106_094152_envio_proceso5001_ctg10235935757_enviado.json"""
+    d = describir_enviado(nombre, datos)
+    partes = ["visec", d["ambiente"] or "x"]
+    if d["fecha"]:
+        partes.append(d["fecha"].strftime("%Y%m%d_%H%M%S"))
+    partes.append("envio" if d["que"] == "Envío" else "resultado")
+    if d["proceso"]:
+        partes.append(f"proceso{d['proceso']}")
+    if len(d["ctgs"]) == 1 and d["ctgs"][0]:
+        partes.append(f"ctg{d['ctgs'][0]}")
+    partes.append({"pedido": "enviado", "respuesta": "respuesta"}.get(parte, "completo"))
+    return re.sub(r"[^\w.-]", "_", "_".join(partes)) + ".json"

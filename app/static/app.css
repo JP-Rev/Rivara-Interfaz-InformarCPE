@@ -186,6 +186,10 @@ textarea.rv-input { resize: vertical; min-height: 130px; line-height: 1.5; }
 
 .ic-acciones { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 
+/* Los enlaces para descargar un JSON, uno al lado del otro sin cortarse. */
+.ic-descargas { white-space: nowrap; }
+.ic-descargas a + a { margin-left: 10px; }
+
 /* Las dos fechas de la corrida, una al lado de la otra mientras entren. */
 .ic-fechas { display: flex; flex-wrap: wrap; gap: 12px; }
 .ic-fechas .rv-campo { flex: 1 1 180px; min-width: 0; }

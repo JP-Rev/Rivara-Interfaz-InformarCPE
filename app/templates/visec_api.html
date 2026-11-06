@@ -142,7 +142,7 @@
   </p>
   <div class="ic-tabla-scroll">
     <table class="rv-tabla">
-      <thead><tr><th></th><th>CTG</th><th>Tipo</th><th>Motivo</th><th>Cuándo</th></tr></thead>
+      <thead><tr><th></th><th>CTG</th><th>Tipo</th><th>Motivo</th><th>Cuándo</th><th>JSON</th></tr></thead>
       <tbody>
         {% for d in pendientes[E.RECHAZADA] %}
         <tr>
@@ -151,6 +151,11 @@
           <td>{{ d.tipo_nombre }}</td>
           <td>{{ d.detalle or d.estado_visec or '—' }}</td>
           <td>{{ d.cuando }}</td>
+          <td class="ic-descargas">
+            {% if d.archivo_envio %}<a href="/visec-api/enviado/{{ d.archivo_envio }}?parte=pedido">Enviado</a>{% endif %}
+            {% if d.archivo_resultado %}<a href="/visec-api/enviado/{{ d.archivo_resultado }}?parte=respuesta">Resultado</a>{% endif %}
+            {% if not d.archivo_envio and not d.archivo_resultado %}—{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -192,4 +197,40 @@
   </div>
   {% endif %}
 {% endfor %}
+
+<div class="rv-card ic-tarjeta">
+  <h3>Lo enviado a Visec ({{ 'producción' if visec_ambiente == 'prd' else 'staging' }})</h3>
+  <p class="ic-ayuda">
+    Cada envío y cada consulta de resultado, con el JSON exacto que salió y lo
+    que contestó Visec. Sirve para mandárselo a ellos y que lo revisen: no
+    tiene el token ni las credenciales.
+  </p>
+  {% if enviados %}
+  <div class="ic-tabla-scroll">
+    <table class="rv-tabla">
+      <thead>
+        <tr><th>Fecha</th><th>Qué</th><th>CTG</th><th>Tipo</th><th>Proceso</th><th>Resultado</th><th>Descargar</th></tr>
+      </thead>
+      <tbody>
+        {% for e in enviados %}
+        <tr>
+          <td>{{ e.fecha.strftime('%d/%m/%Y %H:%M:%S') if e.fecha else '—' }}</td>
+          <td>{{ e.que }}</td>
+          <td class="rv-num">{{ e.ctgs | join(', ') or '—' }}</td>
+          <td>{{ e.tipo or '—' }}</td>
+          <td class="rv-num">{{ e.proceso or '—' }}</td>
+          <td>{{ e.resultado or '—' }}</td>
+          <td class="ic-descargas">
+            <a href="/visec-api/enviado/{{ e.nombre }}?parte=pedido">Enviado</a>
+            <a href="/visec-api/enviado/{{ e.nombre }}?parte=respuesta">Respuesta</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="rv-meta">Todavía no se mandó nada a este ambiente.</p>
+  {% endif %}
+</div>
 {% endblock %}

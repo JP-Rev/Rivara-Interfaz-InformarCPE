@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
 import logging
 from contextlib import asynccontextmanager
 import os
@@ -1186,6 +1187,7 @@ def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, *
                   proxima=(ultima["momento"] + timedelta(minutes=max(config.visec_api_cada_minutos, 1)))
                           if ultima else None,
                   conteo=visec_api.resumen_estado(), pendientes=pendientes,
+                  enviados=visec_api.enviados(30),
                   E=visec_api, **extra),
         status_code=status_code,
     )
@@ -1235,6 +1237,16 @@ async def revisar_visec_api(request: Request):
         f"{r.get(visec_api.ENVIADA, 0)} todavía en proceso."))
 
 
+def _cuerpo_previa(resumen: dict) -> str:
+    """El cuerpo que se mandaría, armado igual que en visec_api.enviar() y en el
+    mismo orden: el filtro tojson de las plantillas ordena las claves."""
+    cartas = [f["json"] for f in resumen["filas"] if f.get("json")]
+    if not cartas:
+        return ""
+    return json.dumps({"cuitEmpresa": config.visec_api_cuit, "cartaPorte": cartas},
+                      ensure_ascii=False, indent=2)
+
+
 @app.post("/visec-api/corrida", response_class=HTMLResponse)
 async def correr_visec_api(request: Request, confirmo: str = Form(""), ctgs: str = Form(""),
                            desde: str = Form(""), hasta: str = Form("")):
@@ -1268,7 +1280,30 @@ async def correr_visec_api(request: Request, confirmo: str = Form(""), ctgs: str
     return plantillas.TemplateResponse(
         request, "visec_api_corrida.html",
         _contexto(request, usuario, seccion="visec_api", r=resumen, solo_ver=solo_ver,
-                  visec_ambiente=config.visec_api_ambiente, E=visec_api),
+                  visec_ambiente=config.visec_api_ambiente, ahora=datetime.now(),
+                  cuerpo_previa=_cuerpo_previa(resumen) if solo_ver else "", E=visec_api),
+    )
+
+
+@app.get("/visec-api/enviado/{nombre}")
+def descargar_enviado_visec(request: Request, nombre: str, parte: str = "pedido"):
+    """El JSON exacto que se le mandó a Visec (parte=pedido), lo que contestó
+    (parte=respuesta) o las dos cosas juntas (parte=completo). Va con sangría
+    para que se lea: el contenido es el mismo que viajó."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    if parte not in visec_api.PARTES:
+        raise HTTPException(status_code=404, detail="Parte desconocida")
+    datos = visec_api.leer_enviado(nombre)
+    if datos is None:
+        raise HTTPException(status_code=404, detail="No existe ese envío")
+    contenido = datos if parte == "completo" else datos.get(parte)
+    return Response(
+        json.dumps(contenido, ensure_ascii=False, indent=2, default=str),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{visec_api.nombre_descarga(nombre, datos, parte)}"'},
     )
 
 
