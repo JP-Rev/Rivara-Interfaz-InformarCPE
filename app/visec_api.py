@@ -613,6 +613,17 @@ def corrida(enviar_de_verdad: bool = True,
         _candado_corrida.release()
 
 
+def revisar() -> dict[str, int]:
+    """Solo pregunta el resultado de lo enviado: no busca ni manda nada nuevo.
+    Con el mismo candado que la corrida, para no pisarse con la automática."""
+    if not _candado_corrida.acquire(blocking=False):
+        raise ErrorVisecApi("Hay una corrida de VISEC en curso. Probá en un rato.")
+    try:
+        return revisar_procesos()
+    finally:
+        _candado_corrida.release()
+
+
 def _corrida(enviar_de_verdad, desde, hasta, ctgs) -> dict:
     from . import oracle, wscpe
 

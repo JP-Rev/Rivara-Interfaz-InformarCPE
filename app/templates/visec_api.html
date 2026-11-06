@@ -60,6 +60,13 @@
     <button class="rv-btn rv-btn--fantasma" type="submit">Probar la conexión</button>
     <span class="rv-meta">Pide un token a Visec: prueba credenciales y red sin mandar ninguna CPE.</span>
   </form>
+  {% if conteo.get(E.ENVIADA) %}
+  <form method="post" action="/visec-api/revisar" class="ic-acciones">
+    <button class="rv-btn rv-btn--secundario" type="submit">Consultar resultados</button>
+    <span class="rv-meta">Pregunta a Visec cómo terminaron las {{ conteo.get(E.ENVIADA) }} enviadas.
+      Solo lee: no manda ninguna CPE.</span>
+  </form>
+  {% endif %}
 </div>
 
 <form class="rv-card ic-tarjeta" method="post" action="/visec-api/corrida">

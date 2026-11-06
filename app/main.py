@@ -1213,6 +1213,28 @@ async def probar_visec_api(request: Request):
                                                   "las credenciales andan y dio un token.")
 
 
+@app.post("/visec-api/revisar", response_class=HTMLResponse)
+async def revisar_visec_api(request: Request):
+    """Pregunta a Visec cómo terminaron las enviadas. No manda ninguna CPE."""
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    if not config.visec_api_listo:
+        return _pagina_visec_api(request, usuario, 400,
+                                 error="Falta configurar Visec: " + "; ".join(config.problemas_visec_api()))
+    try:
+        r = await asyncio.to_thread(visec_api.revisar)
+    except visec_api.ErrorVisecApi as e:
+        return _pagina_visec_api(request, usuario, 400, error=str(e))
+    total = sum(r.values())
+    if not total:
+        return _pagina_visec_api(request, usuario, ok="No había nada esperando el resultado de Visec.")
+    return _pagina_visec_api(request, usuario, ok=(
+        f"Resultado de Visec: {r.get(visec_api.REGISTRADA, 0)} registradas, "
+        f"{r.get(visec_api.RECHAZADA, 0)} rechazadas, "
+        f"{r.get(visec_api.ENVIADA, 0)} todavía en proceso."))
+
+
 @app.post("/visec-api/corrida", response_class=HTMLResponse)
 async def correr_visec_api(request: Request, confirmo: str = Form(""), ctgs: str = Form(""),
                            desde: str = Form(""), hasta: str = Form("")):

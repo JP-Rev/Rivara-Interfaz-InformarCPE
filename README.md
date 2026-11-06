@@ -969,6 +969,29 @@ del otro. El reintento de la pantalla trabaja con esa clave.
 `JP` necesita `SELECT` sobre `EGRESOS_PLANTAS` en los tres esquemas. Si falta,
 la corrida avisa y sigue con los ingresos.
 
+### Primeras pruebas en producción (06/11/2026)
+
+Los dos movimientos pasaron la validación de formato y entraron como procesos
+(5000 el ingreso, 5001 el egreso; el `numero` que devuelve el alta es el
+"Número de Proceso" del portal). Los dos volvieron descartados por reglas de
+negocio de Visec, no por los datos:
+
+| Proceso | CTG | Motivo |
+|---|---|---|
+| 5000, ingreso | 10123352370 | *No se permite registrar CPE debido al Control de Sustentabilidad de la unidad productiva* |
+| 5001, egreso | 10235935757 | *No se dispone de cartas de porte con kilos suficientes para cubrir la salida de mercadería* |
+
+- **Un ingreso necesita la unidad productiva aprobada** en el control de
+  sustentabilidad de Visec. Que el RENSPA esté dado de alta no alcanza.
+- **Un egreso necesita ingresos registrados que lo cubran.** Es la "asignación
+  automática" de la traza que hace Visec: busca entradas registradas con kilos
+  para cubrir la salida. Si los ingresos de esa cosecha no se informaron, no
+  hay con qué cubrirla. **Primero los ingresos, después los egresos.**
+
+Para mirar un resultado sin mandar nada está el botón **Consultar
+resultados**, que aparece cuando hay CPE enviadas esperando a Visec. Pregunta
+cómo terminaron y no manda ninguna CPE.
+
 ### En Visec: sucursales y unidades productivas
 
 La API exige que el RUCA de destino y el RENSPA de cada unidad productiva estén
