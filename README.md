@@ -1086,6 +1086,7 @@ Formatos que pidió Visec para la planilla (noviembre de 2026):
 | Campaña | con barra (ARCA la da como `2526`) | `25/26` |
 | Número CTG Asignado | 12 dígitos, cero adelante | `010131631618` |
 | Tipo Movimiento | 1 ingreso, 2 egreso (`TIPO_MOVIMIENTO`, vacío = 1) | `1` |
+| Peso Neto Carga (Kg) por UP | igual a Peso Neto Carga (Kg) | `30400` |
 
 Son **solo de la planilla** (consulta manual de CTG). La API tiene sus propias
 reglas en `visec_api.py`: hoy coinciden en CTG y campaña, pero a propósito no

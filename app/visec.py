@@ -178,6 +178,8 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
     if not peso_stock:
         peso_stock = _kilos(cpe, "datosCarga.pesoBrutoDescarga", "datosCarga.pesoTaraDescarga")
 
+    peso_carga = _kilos(cpe, "datosCarga.pesoBruto", "datosCarga.pesoTara")
+
     cod_grano = _texto(cpe, "datosCarga.codGrano")
     producto = config.grano_visec.get(cod_grano, cod_grano)
 
@@ -202,13 +204,15 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         "Número RUCA Destino": _texto(cpe, "destino.planta"),
         "Código Producto": producto,
         "Campaña": campania_visec(_texto(cpe, "datosCarga.cosecha")),
-        "Peso Neto Carga (Kg)": _kilos(cpe, "datosCarga.pesoBruto", "datosCarga.pesoTara"),
+        "Peso Neto Carga (Kg)": peso_carga,
         "Número RENSPA": (propios.get("renspa") or "").strip(),
         # Criterio de Rivara: el CTG asignado es el mismo CTG de la CPE.
         "Número CTG Asignado": ctg_visec(_texto(cpe, "cabecera.nroCTG") or consulta.ctg),
         # Por UP (unidad productiva): la carga sale de IPL_KILOS_ESTIMADOS y la
         # descarga es el mismo peso que entró a stock.
-        "Peso Neto Carga (Kg) por UP": _kilos_propios(propios.get("kilos_estimados")),
+        # Criterio de Rivara para la planilla (26/11/2026): la carga por UP es la
+        # misma carga de la CPE. Solo la planilla: la API no lee esta columna.
+        "Peso Neto Carga (Kg) por UP": peso_carga,
         "Peso Neto Descarga (Kg) por UP": peso_stock,
         "Peso Ingreso Stock (Kg)": peso_stock,
         "Último Almacenamiento": config.ultimo_almacenamiento,
