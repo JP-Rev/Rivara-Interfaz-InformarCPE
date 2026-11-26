@@ -3,19 +3,70 @@
 
 {% block titulo_pagina %}
 <div class="ic-titulo">
-  <h2>Egresos</h2>
+  <h2>Egresos a informar</h2>
+  <span class="rv-meta" id="contador"></span>
 </div>
 {% endblock %}
 
 {% block contenido %}
 
-<div class="rv-card ic-tarjeta">
-  <h3>Todavía no está armada</h3>
+<form class="rv-card ic-tarjeta" method="post" action="/egresos/generar" enctype="multipart/form-data" id="formulario">
   <p class="ic-ayuda">
-    Acá van a ir las cartas de porte de lo que sale de planta. La consulta a
-    ARCA es la misma que en ingresos, pero cambian el origen de los datos del
-    sistema y algunas columnas de la plantilla de Visec. Mientras tanto, los
-    ingresos se informan desde la solapa <a href="/">Ingresos</a>.
+    Pegá los CTG de lo que salió de planta. Arma la misma planilla de Visec que
+    los ingresos, con <strong>Tipo Movimiento 2</strong>: la planta de Rivara va
+    como RUCA origen, y quedan vacíos RENSPA, CTG asignado, descarga por UP e
+    ingreso a stock. La fecha de salida se toma de los egresos del ERP (hora del
+    bruto); si el CTG no está ahí, de ARCA, con un aviso.
   </p>
-</div>
+
+  {% if error %}<p class="rv-nota rv-nota--error">{{ error }}</p>{% endif %}
+
+  <div class="rv-campo">
+    <label class="rv-label" for="ctgs">CTG, uno por línea</label>
+    <textarea class="rv-input" id="ctgs" name="ctgs" rows="6" spellcheck="false"
+              placeholder="10235935757&#10;10236012345">{{ ctgs or '' }}</textarea>
+  </div>
+
+  <div class="rv-campo">
+    <label class="rv-label" for="archivo">O un archivo con los CTG (opcional)</label>
+    <input class="rv-input" type="file" id="archivo" name="archivo" accept=".xls,.xlsx,.csv,.txt">
+  </div>
+
+  <div class="ic-acciones">
+    <button class="rv-btn rv-btn--primario" type="submit" id="enviar">
+      Consultar ARCA y generar el XLSX
+    </button>
+    <span class="rv-meta" id="estado">Tarda alrededor de un segundo por CTG.</span>
+  </div>
+</form>
+
+<script>
+  const ctgs = document.getElementById('ctgs')
+  const archivo = document.getElementById('archivo')
+  const contador = document.getElementById('contador')
+  const MAXIMO = {{ max_ctg }}
+
+  function contar() {
+    if (archivo.files.length) {
+      contador.textContent = 'archivo cargado'
+      contador.classList.remove('ic-exceso')
+      return
+    }
+    const lineas = ctgs.value.split('\n').filter((l) => l.trim()).length
+    contador.textContent = lineas ? `${lineas} ${lineas === 1 ? 'línea' : 'líneas'}` : ''
+    contador.classList.toggle('ic-exceso', lineas > MAXIMO)
+  }
+  ctgs.addEventListener('input', contar)
+  archivo.addEventListener('change', contar)
+  contar()
+
+  // La consulta a ARCA puede tardar: sin esto parece colgada.
+  document.getElementById('formulario').addEventListener('submit', () => {
+    const enviar = document.getElementById('enviar')
+    enviar.disabled = true
+    enviar.textContent = 'Consultando ARCA…'
+    document.getElementById('estado').textContent =
+      'No cierres la pestaña; cada CTG tarda alrededor de un segundo.'
+  })
+</script>
 {% endblock %}

@@ -37,7 +37,7 @@ from .planillas import filas as filas_planilla
 from . import certificados
 from .correo import ErrorCorreo, enviar as enviar_mail, problemas_correo
 from .planillas import a_texto as planilla_a_texto, es_planilla
-from .visec import Fila, armar_fila, escribir
+from .visec import EGRESO, INGRESO, Fila, armar_fila, escribir
 from .wscpe import consultar
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -469,7 +469,48 @@ async def generar(
         if isinstance(respuesta, HTTPException):
             raise respuesta
         return respuesta
+    return await _generar_planilla(request, usuario, ctgs, archivo, INGRESO)
 
+
+@app.post("/egresos/generar", response_class=HTMLResponse)
+async def generar_egresos(
+    request: Request,
+    ctgs: str = Form(""),
+    archivo: UploadFile | None = File(None),
+):
+    usuario = usuario_de(request)
+    if not usuario:
+        respuesta = _sin_sesion(request)
+        if isinstance(respuesta, HTTPException):
+            raise respuesta
+        return respuesta
+    return await _generar_planilla(request, usuario, ctgs, archivo, EGRESO)
+
+
+async def _fechas_egreso_erp(ctgs: list[str]) -> tuple[dict[str, object], list[str]]:
+    """La fecha de salida de cada egreso, de EGRESOS_PLANTAS. Si Oracle no
+    está configurado o falla, la planilla se arma igual con la fecha de ARCA."""
+    if not config.oracle_listo():
+        return {}, ["Oracle no está configurado: la fecha de salida se toma de ARCA."]
+    try:
+        filas = await asyncio.to_thread(oracle.buscar_visec, ctgs, egresos=True)
+    except oracle.ErrorOracle as error:
+        log.warning("Egresos XLSX: no se pudo leer el ERP: %s", error)
+        return {}, [f"No se pudo leer el ERP ({error}): la fecha de salida se toma de ARCA."]
+    fechas = {f["ctg"]: f.get("fecha_movimiento") for f in filas if f.get("fecha_movimiento")}
+    faltan = [c for c in ctgs if c not in fechas]
+    avisos = []
+    if faltan:
+        avisos.append(f"{len(faltan)} CTG no están en los egresos del ERP ({', '.join(faltan[:10])}"
+                      f"{'…' if len(faltan) > 10 else ''}): la fecha de salida se toma de ARCA.")
+    return fechas, avisos
+
+
+async def _generar_planilla(request: Request, usuario: dict, ctgs: str,
+                            archivo: UploadFile | None, tipo: int):
+    """Lo común de ingresos y egresos: leer los CTG, consultar ARCA y armar el XLSX."""
+    formulario = "egresos.html" if tipo == EGRESO else "index.html"
+    seccion = {"seccion": "egresos"} if tipo == EGRESO else {}
     texto = ctgs or ""
     if archivo and archivo.filename:
         contenido = await archivo.read()
@@ -479,8 +520,8 @@ async def generar(
             except Exception as error:  # planilla dañada o de un formato raro
                 log.warning("No se pudo leer la planilla %s: %s", archivo.filename, error)
                 return plantillas.TemplateResponse(
-                    request, "index.html",
-                    _contexto(request, usuario, error=f"No se pudo leer la planilla: {error}"),
+                    request, formulario,
+                    _contexto(request, usuario, **seccion, error=f"No se pudo leer la planilla: {error}"),
                     status_code=400,
                 )
         else:
@@ -494,28 +535,38 @@ async def generar(
     entradas, avisos_entrada = parsear_entrada(texto)
     if not entradas:
         return plantillas.TemplateResponse(
-            request, "index.html",
-            _contexto(request, usuario, error="No se encontró ningún número de CTG en lo que cargaste.",
+            request, formulario,
+            _contexto(request, usuario, **seccion, error="No se encontró ningún número de CTG en lo que cargaste.",
                       ctgs=texto),
             status_code=400,
         )
     if len(entradas) > MAX_CTG:
         return plantillas.TemplateResponse(
-            request, "index.html",
-            _contexto(request, usuario,
+            request, formulario,
+            _contexto(request, usuario, **seccion,
                       error=f"Cargaste {len(entradas)} CTG y el máximo por tanda es {MAX_CTG}. "
                             "Dividilo en partes o subí MAX_CTG en el .env.",
                       ctgs=texto),
             status_code=400,
         )
 
-    log.info("Usuario %s consulta %s CTG", usuario.get("email") or usuario.get("name"), len(entradas))
+    log.info("Usuario %s consulta %s CTG (%s)", usuario.get("email") or usuario.get("name"),
+             len(entradas), "egresos" if tipo == EGRESO else "ingresos")
+    if tipo == EGRESO:
+        sin_fecha = [ctg for ctg, propios in entradas if not propios.get("fecha_movimiento")]
+        if sin_fecha:
+            fechas, avisos_erp = await _fechas_egreso_erp(sin_fecha)
+            avisos_entrada = [*avisos_entrada, *avisos_erp]
+            for ctg, propios in entradas:
+                if not propios.get("fecha_movimiento") and fechas.get(ctg):
+                    propios["fecha_movimiento"] = fechas[ctg]
+
     filas: list[Fila] = []
     fallidos: list[dict[str, str]] = []
     for ctg, propios in entradas:
         consulta = consultar(ctg)
         if consulta.ok:
-            filas.append(armar_fila(consulta, propios))
+            filas.append(armar_fila(consulta, propios, tipo))
         else:
             fallidos.append({"ctg": ctg, "detalle": " | ".join(consulta.errores) or "Sin detalle"})
 
@@ -528,8 +579,8 @@ async def generar(
 
     return plantillas.TemplateResponse(
         request, "resultado.html",
-        _contexto(request, usuario, filas=filas, fallidos=fallidos,
-                  avisos_entrada=avisos_entrada, archivo=nombre),
+        _contexto(request, usuario, **seccion, filas=filas, fallidos=fallidos,
+                  avisos_entrada=avisos_entrada, archivo=nombre, egreso=tipo == EGRESO),
     )
 
 
@@ -1387,7 +1438,7 @@ async def confirmar_pendientes(request: Request, confirmo: str = Form("")):
 
 @app.get("/egresos", response_class=HTMLResponse)
 def egresos(request: Request):
-    """Solapa de egresos: todavia sin construir."""
+    """Planilla de Visec para egresos: los CTG de lo que salió de planta."""
     usuario = usuario_de(request)
     if not usuario:
         respuesta = _sin_sesion(request)

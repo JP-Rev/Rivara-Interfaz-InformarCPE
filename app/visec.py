@@ -55,6 +55,12 @@ ESTADOS = {
 # cualquier otro estado puede cambiar o no haber llegado todavía.
 ESTADOS_FINALES = {"CN", "DD"}
 
+# Un egreso se informa en el momento en que sale de planta: la CPE todavía
+# puede estar viajando (AC, CF, CO) y eso no es un problema.
+ESTADOS_EGRESO_OK = {"AC", "CF", "CO", "CN", "DD"}
+
+INGRESO, EGRESO = 1, 2
+
 
 # ---------------------------------------------------------------------------
 # Lectura de la respuesta de ARCA
@@ -155,13 +161,20 @@ class Fila:
     estado: str = ""
 
 
-def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fila:
+def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None,
+               tipo: int = INGRESO) -> Fila:
     """Traduce una CPE de ARCA a una fila de Visec.
 
     `propios` son los datos del sistema (los que trae el CSV de `ctg_soja.py`)
     que ARCA no tiene: la fecha del movimiento, el peso que entró a stock, los
     kilos estimados y el RENSPA.
+
+    `tipo` 2 es un egreso: sale de la planta de Rivara (RUCA origen), sin
+    descarga ni stock, sin RENSPA y sin CTG asignado (Visec arma la traza
+    solo). Solo para la planilla: la API tiene sus propias reglas.
     """
+    if tipo == EGRESO:
+        return _armar_egreso(consulta, propios or {})
     cpe = consulta.cpe or {}
     propios = propios or {}
     avisos: list[str] = []
@@ -238,6 +251,50 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         avisos.append(f"La CPE está en estado {estado}: los pesos de descarga pueden no ser definitivos")
 
     return Fila(ctg=consulta.ctg, valores=valores, avisos=avisos, estado=estado)
+
+
+def _armar_egreso(consulta: Consulta, propios: dict[str, str]) -> Fila:
+    """La fila de un egreso: la base es la misma que la de un ingreso y
+    cambian la fecha, los pesos de descarga, el RENSPA y el tipo."""
+    fila = armar_fila(consulta, propios, tipo=INGRESO)
+    cpe = consulta.cpe or {}
+    valores = fila.valores
+    avisos: list[str] = []
+
+    # La fecha es la de salida: la del ERP (bruto de egreso) o, si no está, la
+    # partida de la CPE en ARCA. Nunca la del último estado, que puede ser la
+    # descarga en destino.
+    fecha = _fecha(propios.get("fecha_movimiento"), config.formato_fecha_hora)
+    if not fecha:
+        fecha = _fecha(
+            _buscar(cpe, "transporte.fechaHoraPartida") or _buscar(cpe, "cabecera.fechaEmision"),
+            config.formato_fecha_hora,
+        )
+        avisos.append("Fecha de movimiento tomada de ARCA: verificar que sea la de salida de planta")
+
+    valores.update({
+        "Fecha y Hora Movimiento": fecha,
+        "Número RENSPA": "",
+        "Número CTG Asignado": "",
+        "Peso Neto Descarga (Kg) por UP": "",
+        "Peso Ingreso Stock (Kg)": "",
+        "Tipo Movimiento": str(EGRESO),
+    })
+
+    obligatorios = [
+        "Fecha y Hora Movimiento", "Fecha CPE", "Número CPE", "Número CTG",
+        "CUIT Titular", "Número RUCA Origen", "CUIT Destinatario", "CUIT Destino",
+        "Código Producto", "Campaña", "Peso Neto Carga (Kg)",
+    ]
+    for columna in obligatorios:
+        if not valores[columna]:
+            avisos.append(f"Falta {columna}")
+
+    codigo = consulta.estado.upper()
+    if codigo and codigo not in ESTADOS_EGRESO_OK:
+        avisos.append(f"La CPE está en estado {fila.estado}: revisar que el egreso corresponda")
+
+    return Fila(ctg=consulta.ctg, valores=valores, avisos=avisos, estado=fila.estado)
 
 
 # ---------------------------------------------------------------------------

@@ -3,12 +3,13 @@
 
 {% block titulo_pagina %}
 <div class="ic-titulo">
-  <h2>Resultado de la consulta</h2>
-  <a class="rv-btn rv-btn--fantasma" href="/">Hacer otra tanda</a>
+  <h2>Resultado de la consulta{% if egreso %} de egresos{% endif %}</h2>
+  <a class="rv-btn rv-btn--fantasma" href="{{ '/egresos' if egreso else '/' }}">Hacer otra tanda</a>
 </div>
 {% endblock %}
 
 {% block contenido %}
+{% set volver = "/egresos" if egreso else "/" %}
 
 <div class="rv-card ic-tarjeta">
   <div class="ic-resumen">
@@ -28,8 +29,8 @@
 
   {% if archivo %}
     <div class="ic-acciones">
-      <a class="rv-btn rv-btn--primario" href="/descargar/{{ archivo }}">Descargar el XLSX para Visec</a>
-      <a class="rv-btn rv-btn--secundario" href="/">Hacer otra tanda</a>
+      <a class="rv-btn rv-btn--primario" href="/descargar/{{ archivo }}">Descargar el XLSX para Visec{% if egreso %} (egresos){% endif %}</a>
+      <a class="rv-btn rv-btn--secundario" href="{{ volver }}">Hacer otra tanda</a>
     </div>
     {% if filas | selectattr('avisos') | list %}
       <p class="rv-nota rv-nota--info">
@@ -41,7 +42,7 @@
     {% endif %}
   {% else %}
     <p class="rv-nota rv-nota--error">No se pudo consultar ninguna CPE, así que no hay archivo.</p>
-    <div class="ic-acciones"><a class="rv-btn rv-btn--secundario" href="/">Volver</a></div>
+    <div class="ic-acciones"><a class="rv-btn rv-btn--secundario" href="{{ volver }}">Volver</a></div>
   {% endif %}
 </div>
 
@@ -76,7 +77,7 @@
       <thead>
         <tr>
           <th>CTG</th><th>Nº CPE</th><th>Estado</th><th>Titular</th>
-          <th>Grano</th><th>Neto carga</th><th>Ingreso stock</th><th>Avisos</th>
+          <th>Grano</th><th>Neto carga</th><th>{{ 'RUCA origen' if egreso else 'Ingreso stock' }}</th><th>Avisos</th>
         </tr>
       </thead>
       <tbody>
@@ -88,7 +89,7 @@
           <td class="rv-num">{{ fila.valores['CUIT Titular'] or '—' }}</td>
           <td>{{ fila.valores['Código Producto'] or '—' }}</td>
           <td class="rv-num">{{ fila.valores['Peso Neto Carga (Kg)'] or '—' }}</td>
-          <td class="rv-num">{{ fila.valores['Peso Ingreso Stock (Kg)'] or '—' }}</td>
+          <td class="rv-num">{{ fila.valores['Número RUCA Origen' if egreso else 'Peso Ingreso Stock (Kg)'] or '—' }}</td>
           <td>
             {% if fila.avisos %}
               <ul class="ic-lista ic-lista--compacta">{% for aviso in fila.avisos %}<li>{{ aviso }}</li>{% endfor %}</ul>

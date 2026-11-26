@@ -1113,13 +1113,33 @@ comparten código, así un cambio pedido para una no toca la otra.
 | Peso Ingreso Stock (Kg) | CSV del script (`peso_ingreso_stock`); si no, `datosCarga.pesoBrutoDescarga` − `pesoTaraDescarga` |
 | Número RENSPA | CSV del script (`IPL_NUMERO_RENSPA`) |
 | Número CTG Asignado | el mismo CTG de la CPE |
-| Peso Neto Carga (Kg) por UP | CSV del script (`IPL_KILOS_ESTIMADOS`) |
+| Peso Neto Carga (Kg) por UP | igual a Peso Neto Carga (Kg) |
 | Peso Neto Descarga (Kg) por UP | el mismo valor que Peso Ingreso Stock |
 | Último Almacenamiento, Tipo Movimiento | valores fijos del `.env` |
 
 Solo una CPE en estado **CN (confirmada)** o **DD (descargada en destino)**
 tiene los pesos de descarga definitivos. En cualquier otro estado la app la
 incluye igual, pero con un aviso.
+
+### Egresos (`/egresos`)
+
+La solapa *Egresos* arma la misma planilla para lo que sale de planta: se pegan
+los CTG (o se sube un archivo con ellos), consulta ARCA igual que en ingresos y
+cambia esto:
+
+| Columna | En un egreso |
+|---|---|
+| Tipo Movimiento | `2`, fijo (no usa `TIPO_MOVIMIENTO`) |
+| Fecha y Hora Movimiento | `EGRESOS_PLANTAS.EPL_FECHA_HORA_BRUTO` del ERP; si el CTG no está o Oracle no responde, la partida de la CPE en ARCA (`transporte.fechaHoraPartida`, o `fechaEmision`), con un aviso |
+| Número RUCA Origen | la planta de Rivara (`origen.planta`), obligatoria |
+| Número RENSPA, Número CTG Asignado | vacíos: Visec arma la traza solo |
+| Peso Neto Descarga (Kg) por UP, Peso Ingreso Stock (Kg) | vacíos |
+| Peso Neto Carga (Kg) y por UP | bruto − tara de la CPE |
+
+Un egreso se informa cuando sale, así que una CPE todavía activa (AC, CF, CO)
+no lleva aviso; sí lo lleva una anulada o rechazada. Para que Visec acepte el
+egreso, los ingresos que lo respaldan tienen que estar informados antes
+("No se dispone de cartas de porte con kilos suficientes").
 
 También falta que Visec indique qué valores acepta en **Tipo Movimiento** y
 **Último Almacenamiento**, y en qué formato quiere el número de CPE y las
