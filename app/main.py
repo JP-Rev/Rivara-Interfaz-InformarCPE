@@ -490,7 +490,7 @@ async def generar_egresos(
 async def _fechas_egreso_erp(ctgs: list[str]) -> tuple[dict[str, object], list[str]]:
     """La fecha de salida de cada egreso, de EGRESOS_PLANTAS. Si Oracle no
     está configurado o falla, la planilla se arma igual con la fecha de ARCA."""
-    if not config.oracle_listo():
+    if not config.oracle_listo:
         return {}, ["Oracle no está configurado: la fecha de salida se toma de ARCA."]
     try:
         filas = await asyncio.to_thread(oracle.buscar_visec, ctgs, egresos=True)
