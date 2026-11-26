@@ -121,6 +121,21 @@ def _fecha(valor: Any, formato: str) -> str:
     return ""
 
 
+def ctg_visec(valor: str) -> str:
+    """El CTG con 12 dígitos, un cero adelante: 10131631618 -> 010131631618.
+    Así lo pide Visec, en la planilla y en la API."""
+    digitos = "".join(c for c in str(valor or "") if c.isdigit())
+    return digitos.zfill(12) if digitos else ""
+
+
+def campania_visec(valor: str) -> str:
+    """ARCA da la cosecha como 2526; Visec la pide con barra: 25/26."""
+    texto = str(valor or "").strip()
+    if len(texto) == 4 and texto.isdigit():
+        return f"{texto[:2]}/{texto[2:]}"
+    return texto
+
+
 def _numero_cpe(cpe: dict) -> str:
     sucursal, nro_orden = _texto(cpe, "cabecera.sucursal"), _texto(cpe, "cabecera.nroOrden")
     if not (sucursal.isdigit() and nro_orden.isdigit()):
@@ -170,7 +185,7 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         "Fecha y Hora Movimiento": fecha_movimiento,
         "Fecha CPE": _fecha(_buscar(cpe, "cabecera.fechaEmision"), config.formato_fecha),
         "Número CPE": _numero_cpe(cpe),
-        "Número CTG": _texto(cpe, "cabecera.nroCTG") or consulta.ctg,
+        "Número CTG": ctg_visec(_texto(cpe, "cabecera.nroCTG") or consulta.ctg),
         # La CPE automotor no tiene un campo "titular": es quien la emite, que
         # en la respuesta es el CUIT de origen (manual v2.0.5, respuesta de
         # autorizarCPEAutomotor).
@@ -186,17 +201,18 @@ def armar_fila(consulta: Consulta, propios: dict[str, str] | None = None) -> Fil
         "CUIT Destino": _cuit(cpe, "destino.cuit"),
         "Número RUCA Destino": _texto(cpe, "destino.planta"),
         "Código Producto": producto,
-        "Campaña": _texto(cpe, "datosCarga.cosecha"),
+        "Campaña": campania_visec(_texto(cpe, "datosCarga.cosecha")),
         "Peso Neto Carga (Kg)": _kilos(cpe, "datosCarga.pesoBruto", "datosCarga.pesoTara"),
         "Número RENSPA": (propios.get("renspa") or "").strip(),
         # Criterio de Rivara: el CTG asignado es el mismo CTG de la CPE.
-        "Número CTG Asignado": _texto(cpe, "cabecera.nroCTG") or consulta.ctg,
+        "Número CTG Asignado": ctg_visec(_texto(cpe, "cabecera.nroCTG") or consulta.ctg),
         # Por UP (unidad productiva): la carga sale de IPL_KILOS_ESTIMADOS y la
         # descarga es el mismo peso que entró a stock.
         "Peso Neto Carga (Kg) por UP": _kilos_propios(propios.get("kilos_estimados")),
         "Peso Neto Descarga (Kg) por UP": peso_stock,
         "Peso Ingreso Stock (Kg)": peso_stock,
         "Último Almacenamiento": config.ultimo_almacenamiento,
+        # 1 ingreso, 2 egreso. Esta planilla es de ingresos.
         "Tipo Movimiento": config.tipo_movimiento,
     }
 

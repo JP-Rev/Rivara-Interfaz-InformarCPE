@@ -105,10 +105,12 @@ class Config:
 
     # Mapeos propios de Visec, que no salen de ARCA
     grano_visec: dict[str, str] = field(default_factory=lambda: _mapa("MAPA_GRANO_VISEC"))
-    tipo_movimiento: str = os.getenv("TIPO_MOVIMIENTO", "").strip()
+    # Visec: 1 ingreso, 2 egreso. Vacío en el .env vale 1 (la planilla es de ingresos).
+    tipo_movimiento: str = os.getenv("TIPO_MOVIMIENTO", "").strip() or "1"
     ultimo_almacenamiento: str = os.getenv("ULTIMO_ALMACENAMIENTO", "").strip()
     formato_numero_cpe: str = os.getenv("FORMATO_NUMERO_CPE", "{sucursal:05d}-{nro_orden:08d}")
-    formato_fecha_hora: str = os.getenv("FORMATO_FECHA_HORA", "%d/%m/%Y %H:%M")
+    # Visec la pide con segundos: 04/05/2026 07:46:00
+    formato_fecha_hora: str = os.getenv("FORMATO_FECHA_HORA", "%d/%m/%Y %H:%M:%S")
     formato_fecha: str = os.getenv("FORMATO_FECHA", "%d/%m/%Y")
 
     # Sesión compartida con el portal (cookie rivara_he, JWT HS256)

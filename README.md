@@ -1077,6 +1077,20 @@ encuentre 0 ingresos. Para mandar una cosecha entera, *Correr ahora* con
 
 ## Qué columnas completa, y de dónde
 
+Formatos que pidió Visec para la planilla (noviembre de 2026):
+
+| Columna | Formato | Ejemplo |
+|---|---|---|
+| Fecha y Hora Movimiento | con segundos (`FORMATO_FECHA_HORA`) | `04/05/2026 07:46:00` |
+| Número CTG | 12 dígitos, cero adelante | `010131631618` |
+| Campaña | con barra (ARCA la da como `2526`) | `25/26` |
+| Número CTG Asignado | 12 dígitos, cero adelante | `010131631618` |
+| Tipo Movimiento | 1 ingreso, 2 egreso (`TIPO_MOVIMIENTO`, vacío = 1) | `1` |
+
+El CTG y la campaña salen de las mismas funciones que usa la API
+(`visec.ctg_visec`, `visec.campania_visec`), así no se desfasan.
+
+
 | Columna de Visec | Origen (campos de la respuesta, manual wscpe v2.0.5) |
 |---|---|
 | Fecha y Hora Movimiento | CSV del script (`fecha_movimiento`); si no, `cabecera.fechaInicioEstado` |
