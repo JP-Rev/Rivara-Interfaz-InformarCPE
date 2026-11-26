@@ -269,14 +269,21 @@ def _positivo(valor: Any) -> int | None:
 
 
 def _campania(valor: str) -> str:
-    return visec.campania_visec(valor)
+    """ARCA da la cosecha como 2526; VISEC la pide como 25/26. Regla propia de
+    la API: la planilla tiene la suya en visec.py y pueden cambiar por separado."""
+    texto = (valor or "").strip()
+    if re.fullmatch(r"\d{4}", texto):
+        return f"{texto[:2]}/{texto[2:]}"
+    return texto
 
 
 def _ctg_visec(valor: str) -> str:
-    """El CTG con 12 dígitos, cero adelante. La regla vive en visec.py, que la
-    usa también la planilla. Con 11 Visec contesta "Formato de Número CTG
-    incorrecto" (staging, 04/11/2026)."""
-    return visec.ctg_visec(valor)
+    """ARCA da el CTG con 11 dígitos; Visec lo quiere con 12, cero adelante.
+    Con 11 contesta "Formato de Número CTG incorrecto" (staging, 04/11/2026), y
+    en sus ejemplos de respuesta devuelve "NumeroCTG": "010000000001". Regla
+    propia de la API: la planilla tiene la suya en visec.py."""
+    digitos = re.sub(r"\D", "", valor or "")
+    return digitos.zfill(12) if digitos else ""
 
 
 def _mismo_ctg(a: Any, b: Any) -> bool:
