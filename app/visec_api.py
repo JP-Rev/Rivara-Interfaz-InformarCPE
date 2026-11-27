@@ -45,6 +45,25 @@ RESPUESTAS_DIR = VISEC_API_DIR / "respuestas"
 # staging valdría en producción: una CPE rechazada en staging no se mandaría, y
 # una registrada en staging se saltearía para siempre en producción.
 ESTADO_VIEJO = VISEC_API_DIR / "estado.json"   # de antes de separarlos: era staging
+VISIBILIDAD = VISEC_API_DIR / "visibilidad.json"   # si los operarios ven la sección
+
+
+def visible_para_todos() -> bool:
+    """Si la sección la ven también los que no son administradores. Sin el
+    archivo (o si no se puede leer) queda solo para administradores."""
+    try:
+        return bool(json.loads(VISIBILIDAD.read_text(encoding="utf-8")).get("todos"))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def fijar_visible_para_todos(todos: bool, quien: str = "") -> None:
+    VISEC_API_DIR.mkdir(parents=True, exist_ok=True)
+    temporal = VISIBILIDAD.with_suffix(".tmp")
+    temporal.write_text(json.dumps({"todos": bool(todos), "quien": quien,
+                                    "cuando": datetime.now().isoformat(timespec="seconds")}),
+                        encoding="utf-8")
+    temporal.replace(VISIBILIDAD)
 
 
 def _archivo_estado() -> Path:

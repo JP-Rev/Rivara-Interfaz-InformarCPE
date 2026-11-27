@@ -56,6 +56,23 @@
   </div>
   {% endif %}
 
+  {% if es_admin %}
+  <form method="post" action="/visec-api/visibilidad" class="ic-acciones">
+    <input type="hidden" name="todos" value="{{ '' if visec_api_para_todos else 'si' }}">
+    <span class="rv-chip {% if visec_api_para_todos %}rv-chip--tint{% else %}rv-chip--neutro{% endif %}">
+      {{ 'Visible para todos' if visec_api_para_todos else 'Solo administradores' }}
+    </span>
+    <button class="rv-btn rv-btn--fantasma" type="submit">
+      {{ 'Ocultar a los operarios' if visec_api_para_todos else 'Mostrar a los operarios' }}
+    </button>
+    <span class="rv-meta">
+      {% if visec_api_para_todos %}Los operarios ven esta sección en el menú y pueden usarla.
+      {% else %}Los operarios no ven esta sección en el menú ni pueden entrar.{% endif %}
+      La corrida automática sigue igual en los dos casos.
+    </span>
+  </form>
+  {% endif %}
+
   <form method="post" action="/visec-api/probar" class="ic-acciones">
     <button class="rv-btn rv-btn--fantasma" type="submit">Probar la conexión</button>
     <span class="rv-meta">Pide un token a Visec: prueba credenciales y red sin mandar ninguna CPE.</span>

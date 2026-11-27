@@ -440,6 +440,8 @@ def _contexto(request: Request, usuario: dict, **extra) -> dict:
         "certs_alerta": [e for e in certificados.estados() if e.nivel != "ok"] if es_admin(usuario) else [],
         # None mientras un admin no eligio: la barra no muestra "Versión ...".
         "modo": modo_de(request, usuario),
+        "ve_visec_api": ve_visec_api(usuario),
+        "visec_api_para_todos": visec_api.visible_para_todos(),
         **extra,
     }
 
@@ -720,6 +722,21 @@ def _con_sesion(request: Request) -> dict | RedirectResponse:
     if isinstance(respuesta, HTTPException):
         raise respuesta
     return respuesta
+
+
+def ve_visec_api(usuario: dict) -> bool:
+    """Visec por API: los administradores siempre; el resto, solo si un
+    administrador la hizo visible desde la sección."""
+    return es_admin(usuario) or visec_api.visible_para_todos()
+
+
+def _con_acceso_visec_api(request: Request) -> dict | RedirectResponse:
+    usuario = _con_sesion(request)
+    if isinstance(usuario, RedirectResponse):
+        return usuario
+    if not ve_visec_api(usuario):
+        raise HTTPException(status_code=403, detail="Esta sección todavía no está habilitada")
+    return usuario
 
 
 def _pagina_albor(request: Request, usuario: dict, status_code: int = 200, **extra):
@@ -1247,7 +1264,7 @@ def _pagina_visec_api(request: Request, usuario: dict, status_code: int = 200, *
 
 @app.get("/visec-api", response_class=HTMLResponse)
 def ver_visec_api(request: Request):
-    usuario = _con_sesion(request)
+    usuario = _con_acceso_visec_api(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
     return _pagina_visec_api(request, usuario)
@@ -1256,7 +1273,7 @@ def ver_visec_api(request: Request):
 @app.post("/visec-api/probar", response_class=HTMLResponse)
 async def probar_visec_api(request: Request):
     """Pide un token: prueba credenciales y red sin mandar ninguna CPE."""
-    usuario = _con_sesion(request)
+    usuario = _con_acceso_visec_api(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
     try:
@@ -1270,7 +1287,7 @@ async def probar_visec_api(request: Request):
 @app.post("/visec-api/revisar", response_class=HTMLResponse)
 async def revisar_visec_api(request: Request):
     """Pregunta a Visec cómo terminaron las enviadas. No manda ninguna CPE."""
-    usuario = _con_sesion(request)
+    usuario = _con_acceso_visec_api(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
     if not config.visec_api_listo:
@@ -1302,7 +1319,7 @@ def _cuerpo_previa(resumen: dict) -> str:
 @app.post("/visec-api/corrida", response_class=HTMLResponse)
 async def correr_visec_api(request: Request, confirmo: str = Form(""), ctgs: str = Form(""),
                            desde: str = Form(""), hasta: str = Form("")):
-    usuario = _con_sesion(request)
+    usuario = _con_acceso_visec_api(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
     solo_ver = confirmo != "si"
@@ -1342,7 +1359,7 @@ def descargar_enviado_visec(request: Request, nombre: str, parte: str = "pedido"
     """El JSON exacto que se le mandó a Visec (parte=pedido), lo que contestó
     (parte=respuesta) o las dos cosas juntas (parte=completo). Va con sangría
     para que se lea: el contenido es el mismo que viajó."""
-    usuario = _con_sesion(request)
+    usuario = _con_acceso_visec_api(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
     if parte not in visec_api.PARTES:
@@ -1362,13 +1379,24 @@ def descargar_enviado_visec(request: Request, nombre: str, parte: str = "pedido"
 @app.post("/visec-api/reintentar")
 async def reintentar_visec_api(request: Request):
     """Vuelve a la cola las rechazadas que se marquen, una vez corregidas."""
-    usuario = _con_sesion(request)
+    usuario = _con_acceso_visec_api(request)
     if isinstance(usuario, RedirectResponse):
         return usuario
     formulario = await request.form()
     claves = [c for c in formulario.getlist("clave") if re.fullmatch(r"\d{11}(-egreso)?", c)]
     cuantos = visec_api.olvidar(claves)
     return RedirectResponse(f"/visec-api?reintentar={cuantos}", status_code=303)
+
+
+@app.post("/visec-api/visibilidad")
+def visibilidad_visec_api(request: Request, todos: str = Form("")):
+    """Solo administradores: muestra u oculta la sección al resto."""
+    usuario = _solo_admin(request)
+    visible = todos == "si"
+    visec_api.fijar_visible_para_todos(visible, usuario.get("email") or usuario.get("name") or "")
+    log.info("Usuario %s dejó Visec por API %s", usuario.get("email") or usuario.get("name"),
+             "visible para todos" if visible else "solo para administradores")
+    return RedirectResponse("/visec-api", status_code=303)
 
 
 @app.get("/bolsatech/pendientes", response_class=HTMLResponse)

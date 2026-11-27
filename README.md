@@ -758,6 +758,14 @@ Cuarta sección del menú, **Visec por API**. Hace lo mismo que el XLSX de
 CPE a la API de trazabilidad B2B de Visec, sola cada pocos minutos. El módulo
 del XLSX sigue funcionando igual, aparte.
 
+### Quién la ve
+
+Por defecto solo los **administradores** del portal: los operarios no la ven en
+el menú y si entran por la URL reciben un 403. Un administrador la puede mostrar
+u ocultar al resto con el botón de la sección (*Mostrar a los operarios*). La
+elección queda en `/data/visec_api/visibilidad.json` y no afecta la corrida
+automática.
+
 ### Por qué es menos complejo de lo que parece
 
 El JSON de la API es, campo por campo y en el mismo orden, la planilla de 25

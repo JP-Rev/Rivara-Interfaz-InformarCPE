@@ -114,6 +114,7 @@
           </svg>
           <span class="ic-nav-label">Informar Visec</span>
         </a>
+        {% if ve_visec_api %}
         <a class="rv-nav-item {% if en_visec_api %}rv-nav-item--activo{% endif %}" href="/visec-api"
            {% if en_visec_api %}aria-current="page"{% endif %}>
           <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -121,6 +122,7 @@
           </svg>
           <span class="ic-nav-label">Visec por API</span>
         </a>
+        {% endif %}
         <a class="rv-nav-item {% if en_albor %}rv-nav-item--activo{% endif %}" href="/albor"
            {% if en_albor %}aria-current="page"{% endif %}>
           <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
